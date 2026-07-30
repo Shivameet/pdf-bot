@@ -1,13 +1,17 @@
 {
-  "name": "pdf-bot",
+  "name": "telegram-dokumen-bot",
   "version": "1.0.0",
+  "description": "Telegram bot for searching documents from dokumen.pub",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "axios": "^1.7.9",
-    "cheerio": "^1.0.0",
-    "node-telegram-bot-api": "^0.66.0"
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12",
+    "node-cache": "^5.1.2",
+    "node-telegram-bot-api": "^0.61.0"
   }
 }
+
+http://googleusercontent.com/immersive_entry_chip/0
