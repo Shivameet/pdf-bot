@@ -5,7 +5,13 @@ const axios = require('axios');
 const token = process.env.BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
-// Crash-proof guards
+// Bot start hote hi left side mein menu commands set karna
+bot.setMyCommands([
+  { command: 'start', description: 'Start the bot & welcome message' },
+  { command: 'language', description: 'Change preferred language / Bhasha badlein' }
+]);
+
+// Crash-proof guards taaki bot kabhi band na ho
 process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err));
 process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
 
@@ -14,7 +20,7 @@ const userLanguages = {};
 // Render HTTP Server
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Bot is running!\n');
+  res.end('Bot is running safely!\n');
 });
 
 const PORT = process.env.PORT || 3000;
@@ -29,7 +35,7 @@ function detectLanguage(text) {
   return null;
 }
 
-// Wikipedia Data Fetching (Short summary & Big PDF Button)
+// Wikipedia Data Fetching (Short summary & Big PDF Download Button)
 async function getWikipediaData(query, lang = 'en') {
   try {
     const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
@@ -46,7 +52,7 @@ async function getWikipediaData(query, lang = 'en') {
     const pageData = summaryRes.data;
     let extract = pageData.extract || "Summary not available.";
     
-    // Summary ko chota (point-to-point) rakhne ke liye sirf pehle 2 ya 3 sentences lenge
+    // Summary ko chota (point-to-point) rakhne ke liye sirf pehle 2 sentences
     const sentences = extract.match(/[^.!?]+[.!?]+/g);
     if (sentences && sentences.length > 2) {
       extract = sentences.slice(0, 2).join(' ');
@@ -65,7 +71,7 @@ async function getWikipediaData(query, lang = 'en') {
   }
 }
 
-// Flags ke sath Clean Language Menu
+// Clean Language Selection Menu (Flags ke sath)
 function getLanguageMenu() {
   return {
     reply_markup: {
@@ -83,13 +89,13 @@ function getLanguageMenu() {
   };
 }
 
-// Start Command with Introduction & Clean Language Menu
+// Start Command (English mein clear introduction)
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const welcomeText = `👋 **Welcome!**\n\n` +
-    `🤖 *Yeh bot kya karta hai?*\n` +
-    `Is bot ki madad se aap kisi bhi topic ki choti, saaf-suthri summary aur uska **direct PDF** ek click mein download kar sakte hain.\n\n` +
-    `🌐 *Apni pasand ki bhasha chunein:*`;
+    `🤖 *What does this bot do?*\n` +
+    `You can get a short, clean summary of any topic and download its **direct PDF** with a single click.\n\n` +
+    `🌐 *Choose your preferred language below:*`;
 
   bot.sendMessage(chatId, welcomeText, {
     parse_mode: 'Markdown',
@@ -109,7 +115,7 @@ bot.on('callback_query', async (query) => {
   const data = query.data;
 
   try {
-    if (data.startsWith('lang_') && data !== 'lang_menu') {
+    if (data.startsWith('lang_')) {
       const langCode = data.split('_')[1];
       userLanguages[chatId] = langCode;
 
@@ -119,10 +125,7 @@ bot.on('callback_query', async (query) => {
       else if (langCode === 'fr') langName = 'Français';
 
       await bot.answerCallbackQuery(query.id, { text: `Language changed to ${langName}` });
-      await bot.sendMessage(chatId, `✅ Language updated to *${langName}*.\n\nAb aap koi bhi topic bhej sakte hain!`, { parse_mode: 'Markdown' });
-    } else if (data === 'lang_menu') {
-      await bot.answerCallbackQuery(query.id);
-      await bot.sendMessage(chatId, '🌐 Select your language:', getLanguageMenu());
+      await bot.sendMessage(chatId, `✅ Language updated to *${langName}*.\n\nNow send any topic name!`, { parse_mode: 'Markdown' });
     }
   } catch (err) {
     console.log('Callback error:', err);
@@ -134,7 +137,7 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   
   if (msg.voice) {
-    bot.sendMessage(chatId, '🎙️ Voice note received! (Voice search feature is active, currently text search is processing).').catch(() => {});
+    bot.sendMessage(chatId, '🎙️ Voice note received! (Feature active, currently processing text search).').catch(() => {});
     return;
   }
 
@@ -143,7 +146,7 @@ bot.on('message', async (msg) => {
 
   if (msg.chat.type === 'private') {
     const autoLang = detectLanguage(searchQuery);
-    const userLang = autoLang || userLanguages[chatId]|| 'en';
+    const userLang = autoLang || userLanguages[chatId] || 'en';
 
     let processingMsg;
     try {
@@ -159,12 +162,12 @@ bot.on('message', async (msg) => {
     }
 
     if (result) {
+      // Waisa hi bada aur saaf PDF download button (No extra language button at bottom)
       const opts = {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '📥 Download PDF File', url: result.pdfLink }],
-            [{ text: '🌐 Change Language / Bhasha Badlein', callback_data: 'lang_menu' }]
+            [{ text: '📥 Download PDF File', url: result.pdfLink }]
           ]
         }
       };
@@ -174,11 +177,11 @@ bot.on('message', async (msg) => {
 
       bot.sendMessage(chatId, replyText, opts).catch(() => {});
     } else {
-      // Friendly, polite fallback message when no data is found
-      const politeMessage = `🔍 Maaf kijiye, "${searchQuery}" se judi koi jaankari ya file abhi nahi mil paayi.\n\nKripya ek baar spelling check karke koi doosra keyword try karein! ✨`;
+      // Short, polite and non-aggressive message when no data is found
+      const politeMessage = `❌ Maaf kijiye, yeh keyword nahi mila. Kripya spelling check karke doosra naam try karein.`;
       bot.sendMessage(chatId, politeMessage).catch(() => {});
     }
   }
 });
 
-console.log('Clean & Final Bot successfully started...');
+console.log('Perfect Fixed Bot successfully started...');
