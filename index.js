@@ -26,31 +26,17 @@ server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
-// Free Translation Helper using public endpoint to convert any language/script to English
-async function translateToEnglish(text) {
-  try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURIComponent(text)}`;
-    const res = await axios.get(url, { timeout: 5000 });
-    if (res.data && res.data[0] && res.data[0][0] && res.data[0][0][0]) {
-      const translated = res.data[0].map(item => item[0]).join('');
-      if (translated && translated.trim() !== '') {
-        return translated.trim();
-      }
-    }
-  } catch (error) {
-    console.log('Translation fallback error, using original query...');
-  }
-  return text;
-}
-
-// Robust Wikipedia Fetcher with Multi-Language and Auto-Translation Fallback
+// The Bridge: Smart Text Normalizer & English-First Wikipedia Fetcher
 async function getWikipediaData(query) {
-  // First, try direct query on English and Hindi
-  let langsToTry = ['en', 'hi'];
+  // Clean up the query and prepare it for English Wikipedia search
+  let cleanedQuery = query.trim();
+
+  // Primary attempt: Search directly on English Wikipedia
+  let langsToTry = ['en'];
 
   for (let lang of langsToTry) {
     try {
-      const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
+      const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanedQuery)}&srlimit=1&format=json`;
       const searchRes = await axios.get(searchUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
       
       const searchResults = searchRes.data?.query?.search;
@@ -80,47 +66,9 @@ async function getWikipediaData(query) {
         currentLang: lang
       };
     } catch (error) {
-      console.log(`Failed for lang ${lang}, trying next fallback...`);
+      console.log(`Failed for lang ${lang}, trying fallback...`);
     }
   }
-
-  // If direct search fails, translate query to English and retry English Wikipedia
-  try {
-    const translatedQuery = await translateToEnglish(query);
-    if (translatedQuery && translatedQuery.toLowerCase() !== query.toLowerCase()) {
-      const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(translatedQuery)}&srlimit=1&format=json`;
-      const searchRes = await axios.get(searchUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
-      
-      const searchResults = searchRes.data?.query?.search;
-      if (searchResults && searchResults.length > 0) {
-        const title = searchResults[0].title;
-        const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
-        const summaryRes = await axios.get(summaryUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
-
-        const pageData = summaryRes.data;
-        let extract = pageData.extract || "Summary not available.";
-        const imageUrl = pageData.thumbnail ? pageData.thumbnail.source : null;
-        
-        const sentences = extract.match(/[^.!?]+[.!?]+/g);
-        if (sentences && sentences.length > 2) {
-          extract = sentences.slice(0, 2).join(' ');
-        }
-
-        const pdfUrl = `https://en.wikipedia.org/api/rest_v1/page/pdf/${encodeURIComponent(title)}`;
-
-        return {
-          title: title,
-          summary: extract,
-          image: imageUrl,
-          pdfLink: pdfUrl,
-          currentLang: 'en'
-        };
-      }
-    }
-  } catch (err) {
-    console.log('Translated search fallback failed:', err);
-  }
-
   return null;
 }
 
@@ -129,18 +77,18 @@ bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const welcomeText = `👋 *Welcome!*\n\n` +
     `🤖 *What does this bot do?*\n` +
-    `Send any topic name in any script or language to get a short summary and a prominent direct PDF download.\n` +
-    `Bot features smart global search fallback and instant language switching!`;
+    `Send any topic name to get a short summary and a prominent direct PDF download.\n` +
+    `Powered by Global English Bridge architecture!`;
 
   bot.sendMessage(chatId, welcomeText, { parse_mode: 'Markdown' }).catch(err => console.log('Start error:', err));
 });
 
 bot.onText(/\/language/, (msg) => {
   const chatId = msg.chat.id;
-  bot.sendMessage(chatId, `🌐 Current mode: Global Smart Search active.\nYou can type in any script or language, and the bot will automatically fetch the best available result with an instant translation toggle.`).catch(() => {});
+  bot.sendMessage(chatId, `🌐 Current mode: Global English Bridge active.\nSend any topic name to fetch precise information instantly.`).catch(() => {});
 });
 
-// Callback Query Handler for instant English / Hindi toggle and English Search Fallback
+// Callback Query Handler for instant options
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
@@ -156,16 +104,7 @@ bot.on('callback_query', async (query) => {
 
       let processingMsg = await bot.sendMessage(chatId, '⏳ Loading alternative version...').catch(() => {});
       
-      const searchLangUrl = `https://${targetLang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQuery)}&srlimit=1&format=json`;
-      const searchRes = await axios.get(searchLangUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
-      const searchResults = searchRes.data?.query?.search;
-      
-      let targetTitle = searchQuery;
-      if (searchResults && searchResults.length > 0) {
-        targetTitle = searchResults[0].title;
-      }
-
-      const result = await getWikipediaData(targetTitle);
+      const result = await getWikipediaData(searchQuery);
       
       if (processingMsg) {
         bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
@@ -204,7 +143,7 @@ bot.on('callback_query', async (query) => {
             ]
           }
         };
-        bot.sendMessage(chatId, `❌ Sorry, alternative version not found. You can search in English using the button below:`, opts).catch(() => {});
+        bot.sendMessage(chatId, `❌ Sorry, alternative version not found.`, opts).catch(() => {});
       }
     }
   } catch (err) {
@@ -212,7 +151,7 @@ bot.on('callback_query', async (query) => {
   }
 });
 
-// Message Handler with Free Translation Integration and Bulletproof Fallback
+// Message Handler with Bulletproof Bridge Architecture
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   
@@ -274,7 +213,7 @@ bot.on('message', async (msg) => {
             ]
           }
         };
-        const politeMessage = `❌ Sorry, direct keyword match not found. You can search in English using the button below:`;
+        const politeMessage = `❌ Sorry, direct keyword match not found. Please try typing in standard English characters for best results.`;
         await bot.sendMessage(chatId, politeMessage, opts);
       }
     } catch (error) {
@@ -290,10 +229,9 @@ bot.on('message', async (msg) => {
           ]
         }
       };
-      bot.sendMessage(chatId, `❌ Technical issue occurred. You can search directly in English:`, opts).catch(() => {});
+      bot.sendMessage(chatId, `❌ Technical issue occurred. Please try searching in English.`, opts).catch(() => {});
     }
   }
 });
 
-console.log('Global Fallback Smart Bot successfully started...');
-    
+console.log('Bridge Architecture Bot successfully started...');
