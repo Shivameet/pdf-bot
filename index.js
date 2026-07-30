@@ -199,4 +199,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('Final PDF & Toggle Bot successfully started...');
+console.log('Final Green Card & Toggle Bot successfully started...');
