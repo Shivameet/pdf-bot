@@ -97,34 +97,29 @@ bot.on('callback_query', async (query) => {
       }
 
       if (result) {
-        let textContent = `📄 *${result.title}* (${result.currentLang.toUpperCase()})\n\n`;
-        textContent += `${result.summary}\n\n`;
-        textContent += `📥 [Download PDF File](${result.pdfLink})`;
-
-        if (textContent.length > 1024) textContent = textContent.substring(0, 1020) + '...';
+        let caption = `📄 *${result.title}* (${result.currentLang.toUpperCase()})\n\n${result.summary}`;
+        if (caption.length > 1024) caption = caption.substring(0, 1020) + '...';
 
         const alternateLang = result.currentLang === 'en' ? 'hi' : 'en';
         const alternateLabel = result.currentLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
 
         const opts = {
+          parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
+              [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }],
               [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
             ]
           }
         };
 
-        // Send main summary with green card (no text above button)
         if (result.image) {
-          await bot.sendPhoto(chatId, result.image, { caption: textContent, parse_mode: 'Markdown' }).catch(() => {
-            bot.sendMessage(chatId, textContent, { parse_mode: 'Markdown' });
+          bot.sendPhoto(chatId, result.image, { caption: caption, ...opts }).catch(() => {
+            bot.sendMessage(chatId, caption, opts).catch(() => {});
           });
         } else {
-          bot.sendMessage(chatId, textContent, { parse_mode: 'Markdown' });
+          bot.sendMessage(chatId, caption, opts).catch(() => {});
         }
-
-        // Send ONLY the button without any extra annoying text
-        bot.sendMessage(chatId, '👇 Choose option:', opts).catch(() => {});
       } else {
         bot.sendMessage(chatId, `❌ Sorry, alternative version not found.`).catch(() => {});
       }
@@ -151,6 +146,7 @@ bot.on('message', async (msg) => {
     try {
       processingMsg = await bot.sendMessage(chatId, '⏳ Searching...');
       
+      // Try searching primarily in English first
       const result = await getWikipediaData(searchQuery, 'en');
       
       if (processingMsg) {
@@ -158,40 +154,35 @@ bot.on('message', async (msg) => {
       }
 
       if (result) {
-        let textContent = `📄 *${result.title}*\n\n`;
-        textContent += `${result.summary}\n\n`;
-        textContent += `📥 [Download PDF File](${result.pdfLink})`;
+        let caption = `📄 *${result.title}*\n\n${result.summary}`;
 
-        if (textContent.length > 1024) {
-          textContent = textContent.substring(0, 1020) + '...';
+        if (caption.length > 1024) {
+          caption = caption.substring(0, 1020) + '...';
         }
 
         const alternateLang = 'hi';
         const alternateLabel = '🇮🇳 Read in Hindi';
 
         const opts = {
+          parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
+              [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }],
               [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
             ]
           }
         };
 
-        // 1. Send the summary with the perfect green PDF file card
         if (result.image) {
-          await bot.sendPhoto(chatId, result.image, {
-            caption: textContent,
-            parse_mode: 'Markdown'
+          bot.sendPhoto(chatId, result.image, {
+            caption: caption,
+            ...opts
           }).catch(() => {
-            bot.sendMessage(chatId, textContent, { parse_mode: 'Markdown' });
+            bot.sendMessage(chatId, caption, opts).catch(() => {});
           });
         } else {
-          bot.sendMessage(chatId, textContent, { parse_mode: 'Markdown' });
+          bot.sendMessage(chatId, caption, opts).catch(() => {});
         }
-
-        // 2. Send ONLY the button right below it without extra text clutter
-        bot.sendMessage(chatId, '👇 Choose option:', opts).catch(() => {});
-
       } else {
         const englishMessage = `⚠️ *No Direct Match Found*\n\nPlease search using standard English keywords.`;
         await bot.sendMessage(chatId, englishMessage, { parse_mode: 'Markdown' });
@@ -206,4 +197,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('Clean Layout Bot successfully started...');
+console.log('Language-Toggle Bot successfully started...');
