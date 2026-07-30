@@ -26,48 +26,47 @@ server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
-// Clean and Robust Wikipedia Fetcher (Supports Multi-words & Spaces)
+// Strict Exact-Match Wikipedia Fetcher (Only English primary)
 async function getWikipediaData(query) {
-  let langsToTry = ['en', 'hi'];
+  try {
+    const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
+    const searchRes = await axios.get(searchUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
+    
+    const searchResults = searchRes.data?.query?.search;
+    if (!searchResults || searchResults.length === 0) return null;
 
-  for (let lang of langsToTry) {
-    try {
-      const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
-      const searchRes = await axios.get(searchUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
-      
-      const searchResults = searchRes.data?.query?.search;
-      if (!searchResults || searchResults.length === 0) continue;
+    const title = searchResults[0].title;
+    
+    // Check if the search result closely matches or if it's completely irrelevant
+    const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+    const summaryRes = await axios.get(summaryUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
 
-      const title = searchResults[0].title;
-      
-      const summaryUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
-      const summaryRes = await axios.get(summaryUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
+    const pageData = summaryRes.data;
+    if (pageData.type === 'disambiguation') return null;
 
-      const pageData = summaryRes.data;
-      const extract = pageData.extract || "Summary not available.";
-      const imageUrl = pageData.thumbnail ? pageData.thumbnail.source : null;
-      const pdfUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/pdf/${encodeURIComponent(title)}`;
+    const extract = pageData.extract || "Summary not available.";
+    const imageUrl = pageData.thumbnail ? pageData.thumbnail.source : null;
+    const pdfUrl = `https://en.wikipedia.org/api/rest_v1/page/pdf/${encodeURIComponent(title)}`;
 
-      return {
-        title: title,
-        summary: extract,
-        image: imageUrl,
-        pdfLink: pdfUrl,
-        currentLang: lang
-      };
-    } catch (error) {
-      console.log(`Failed for lang ${lang}, trying next fallback...`);
-    }
+    return {
+      title: title,
+      summary: extract,
+      image: imageUrl,
+      pdfLink: pdfUrl,
+      currentLang: 'en'
+    };
+  } catch (error) {
+    console.log(`Wikipedia fetch error:`, error.message);
   }
   return null;
 }
 
-// Start Command Handler
+// Start Command Handler with Short English Disclaimer
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const welcomeText = `👋 *Welcome!*\n\n` +
-    `🤖 *What does this bot do?*\n` +
-    `Send any topic name to get a short summary and a prominent direct PDF download.`;
+    `🤖 Send any topic name to get a summary and PDF download.\n\n` +
+    `⚠️ *Tip:* Please search using English keywords for best results.`;
 
   bot.sendMessage(chatId, welcomeText, { parse_mode: 'Markdown' }).catch(err => console.log('Start error:', err));
 });
@@ -85,42 +84,27 @@ bot.on('callback_query', async (query) => {
   try {
     if (data.startsWith('switch_')) {
       const parts = data.split('_');
-      const targetLang = parts[1];
       const encodedQuery = parts.slice(2).join('_');
       const searchQuery = decodeURIComponent(encodedQuery);
 
       await bot.answerCallbackQuery(query.id, { text: `Loading result...` });
 
       let processingMsg = await bot.sendMessage(chatId, '⏳ Loading alternative version...').catch(() => {});
-      
-      const searchLangUrl = `https://${targetLang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQuery)}&srlimit=1&format=json`;
-      const searchRes = await axios.get(searchLangUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
-      const searchResults = searchRes.data?.query?.search;
-      
-      let targetTitle = searchQuery;
-      if (searchResults && searchResults.length > 0) {
-        targetTitle = searchResults[0].title;
-      }
-
-      const result = await getWikipediaData(targetTitle);
+      const result = await getWikipediaData(searchQuery);
       
       if (processingMsg) {
         bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
       }
 
       if (result) {
-        let caption = `📄 *${result.title}* (${result.currentLang.toUpperCase()})\n\n${result.summary}`;
+        let caption = `📄 *${result.title}*\n\n${result.summary}`;
         if (caption.length > 1024) caption = caption.substring(0, 1020) + '...';
-
-        const alternateLang = result.currentLang === 'en' ? 'hi' : 'en';
-        const alternateLabel = result.currentLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
 
         const opts = {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }],
-              [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
+              [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }]
             ]
           }
         };
@@ -133,15 +117,7 @@ bot.on('callback_query', async (query) => {
           bot.sendMessage(chatId, caption, opts).catch(() => {});
         }
       } else {
-        const opts = {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: `🔍 Search in English`, callback_data: `switch_en_${encodeURIComponent(searchQuery)}` }]
-            ]
-          }
-        };
-        bot.sendMessage(chatId, `❌ Sorry, alternative version not found.`, opts).catch(() => {});
+        bot.sendMessage(chatId, `❌ Sorry, result not found.`).catch(() => {});
       }
     }
   } catch (err) {
@@ -179,15 +155,11 @@ bot.on('message', async (msg) => {
           caption = caption.substring(0, 1020) + '...';
         }
 
-        const alternateLang = result.currentLang === 'en' ? 'hi' : 'en';
-        const alternateLabel = result.currentLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
-
         const opts = {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }],
-              [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
+              [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }]
             ]
           }
         };
@@ -212,8 +184,8 @@ bot.on('message', async (msg) => {
           }
         };
         
-        // Always English professional popup message
-        const englishMessage = `⚠️ *No Direct Match Found*\n\nWe couldn't find a direct match for your query. For the best and most accurate results, please try searching using **standard English keywords**.`;
+        // Clean short English popup message
+        const englishMessage = `⚠️ *No Direct Match Found*\n\nPlease search using standard English keywords.`;
         await bot.sendMessage(chatId, englishMessage, opts);
       }
     } catch (error) {
@@ -229,9 +201,9 @@ bot.on('message', async (msg) => {
           ]
         }
       };
-      bot.sendMessage(chatId, `⚠️ *No Direct Match Found*\n\nWe couldn't find a direct match for your query. Please try searching using standard English keywords.`, opts).catch(() => {});
+      bot.sendMessage(chatId, `⚠️ *No Direct Match Found*\n\nPlease search using standard English keywords.`, opts).catch(() => {});
     }
   }
 });
 
-console.log('Clean Robust Bot successfully started...');
+console.log('Final Clean Bot successfully started...');
