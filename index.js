@@ -5,13 +5,13 @@ const axios = require('axios');
 const token = process.env.BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
-// Bot start hote hi left side mein menu commands set karna
+// Menu button commands set karna
 bot.setMyCommands([
-  { command: 'start', description: 'Start the bot & welcome message' },
-  { command: 'language', description: 'Change preferred language / Bhasha badlein' }
+  { command: 'start', description: 'Start the bot' },
+  { command: 'language', description: 'Change language' }
 ]);
 
-// Crash-proof guards taaki bot kabhi band na ho
+// Crash-proof guards
 process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err));
 process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
 
@@ -35,7 +35,7 @@ function detectLanguage(text) {
   return null;
 }
 
-// Wikipedia Data Fetching (Short summary & Big PDF Download Button)
+// Wikipedia Data Fetching (Thumbnail, Short Summary & Circular PDF Link)
 async function getWikipediaData(query, lang = 'en') {
   try {
     const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
@@ -51,6 +51,7 @@ async function getWikipediaData(query, lang = 'en') {
 
     const pageData = summaryRes.data;
     let extract = pageData.extract || "Summary not available.";
+    const imageUrl = pageData.thumbnail ? pageData.thumbnail.source : null;
     
     // Summary ko chota (point-to-point) rakhne ke liye sirf pehle 2 sentences
     const sentences = extract.match(/[^.!?]+[.!?]+/g);
@@ -63,6 +64,7 @@ async function getWikipediaData(query, lang = 'en') {
     return {
       title: title,
       summary: extract,
+      image: imageUrl,
       pdfLink: pdfUrl
     };
   } catch (error) {
@@ -71,7 +73,7 @@ async function getWikipediaData(query, lang = 'en') {
   }
 }
 
-// Clean Language Selection Menu (Flags ke sath)
+// Flags ke sath Language Selection Menu (Sirf ek button jisko click karke list khule)
 function getLanguageMenu() {
   return {
     reply_markup: {
@@ -89,18 +91,24 @@ function getLanguageMenu() {
   };
 }
 
-// Start Command (English mein clear introduction)
+// Start Command (Clean Welcome Message without direct boxes)
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const welcomeText = `👋 **Welcome!**\n\n` +
     `🤖 *What does this bot do?*\n` +
-    `You can get a short, clean summary of any topic and download its **direct PDF** with a single click.\n\n` +
-    `🌐 *Choose your preferred language below:*`;
+    `You can get a short, clean summary and direct PDF of any topic.\n\n` +
+    `Click below to change your language if needed:`;
 
-  bot.sendMessage(chatId, welcomeText, {
+  const opts = {
     parse_mode: 'Markdown',
-    ...getLanguageMenu()
-  }).catch(err => console.log('Start error:', err));
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '🌐 Select Language / Bhasha Chunein', callback_data: 'show_lang_menu' }]
+      ]
+    }
+  };
+
+  bot.sendMessage(chatId, welcomeText, opts).catch(err => console.log('Start error:', err));
 });
 
 bot.onText(/\/language/, (msg) => {
@@ -115,7 +123,10 @@ bot.on('callback_query', async (query) => {
   const data = query.data;
 
   try {
-    if (data.startsWith('lang_')) {
+    if (data === 'show_lang_menu') {
+      await bot.answerCallbackQuery(query.id);
+      await bot.sendMessage(chatId, '🌐 Select your preferred language / Apni bhasha chunein:', getLanguageMenu());
+    } else if (data.startsWith('lang_')) {
       const langCode = data.split('_')[1];
       userLanguages[chatId] = langCode;
 
@@ -137,7 +148,7 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   
   if (msg.voice) {
-    bot.sendMessage(chatId, '🎙️ Voice note received! (Feature active, currently processing text search).').catch(() => {});
+    bot.sendMessage(chatId, '🎙️ Voice note received! (Processing text search).').catch(() => {});
     return;
   }
 
@@ -162,26 +173,41 @@ bot.on('message', async (msg) => {
     }
 
     if (result) {
-      // Waisa hi bada aur saaf PDF download button (No extra language button at bottom)
+      // Original Circular PDF Download Button format
+      let caption = `📄 **${result.title}**\n\n`;
+      caption += `${result.summary}\n\n`;
+      caption += `📥 [${result.title}.pdf](${result.pdfLink})`;
+
+      if (caption.length > 1024) {
+        caption = caption.substring(0, 1020) + '...';
+      }
+
       const opts = {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '📥 Download PDF File', url: result.pdfLink }]
+            [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }]
           ]
         }
       };
 
-      let replyText = `📄 **${result.title}**\n\n`;
-      replyText += `${result.summary}`;
-
-      bot.sendMessage(chatId, replyText, opts).catch(() => {});
+      if (result.image) {
+        bot.sendPhoto(chatId, result.image, {
+          caption: caption,
+          parse_mode: 'Markdown',
+          reply_markup: opts.reply_markup
+        }).catch(async () => {
+          await bot.sendMessage(chatId, caption, opts).catch(() => {});
+        });
+      } else {
+        bot.sendMessage(chatId, caption, opts).catch(() => {});
+      }
     } else {
-      // Short, polite and non-aggressive message when no data is found
       const politeMessage = `❌ Maaf kijiye, yeh keyword nahi mila. Kripya spelling check karke doosra naam try karein.`;
       bot.sendMessage(chatId, politeMessage).catch(() => {});
     }
   }
 });
 
-console.log('Perfect Fixed Bot successfully started...');
+console.log('100% Perfect Fixed Bot successfully started...');
+      
