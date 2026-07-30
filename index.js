@@ -5,17 +5,14 @@ const axios = require('axios');
 const token = process.env.BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
-// Left side menu button commands
 bot.setMyCommands([
   { command: 'start', description: 'Start the bot' },
   { command: 'language', description: 'Change language preference' }
 ]);
 
-// Crash-proof guards
 process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err));
 process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
 
-// Render HTTP Server for hosting/uptime
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Bot is running safely!\n');
@@ -26,7 +23,6 @@ server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
-// Robust Wikipedia Fetcher with Global English Primary Fallback
 async function getWikipediaData(query) {
   let langsToTry = ['en', 'hi'];
 
@@ -47,7 +43,6 @@ async function getWikipediaData(query) {
       let extract = pageData.extract || "Summary not available.";
       const imageUrl = pageData.thumbnail ? pageData.thumbnail.source : null;
       
-      // Keep summary short (point-to-point: first 2 sentences)
       const sentences = extract.match(/[^.!?]+[.!?]+/g);
       if (sentences && sentences.length > 2) {
         extract = sentences.slice(0, 2).join(' ');
@@ -69,7 +64,6 @@ async function getWikipediaData(query) {
   return null;
 }
 
-// Start Command Handler
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const welcomeText = `👋 *Welcome!*\n\n` +
@@ -85,7 +79,6 @@ bot.onText(/\/language/, (msg) => {
   bot.sendMessage(chatId, `🌐 Current mode: Global Smart Search active.\nYou can type in any script or language, and the bot will automatically fetch the best available result with an instant translation toggle.`).catch(() => {});
 });
 
-// Callback Query Handler for instant English / Hindi toggle and English Search Fallback
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
@@ -157,7 +150,6 @@ bot.on('callback_query', async (query) => {
   }
 });
 
-// Message Handler for Search
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   
@@ -190,7 +182,6 @@ bot.on('message', async (msg) => {
         caption = caption.substring(0, 1020) + '...';
       }
 
-      // STRICT CONDITION: When result IS FOUND, ONLY show PDF & Language Toggle. NO "Search in English" button!
       const alternateLang = result.currentLang === 'en' ? 'hi' : 'en';
       const alternateLabel = result.currentLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
 
@@ -215,7 +206,6 @@ bot.on('message', async (msg) => {
         bot.sendMessage(chatId, caption, opts).catch(() => {});
       }
     } else {
-      // STRICT CONDITION: When result IS NOT FOUND, ONLY show "Search in English" button!
       const opts = {
         parse_mode: 'Markdown',
         reply_markup: {
@@ -231,3 +221,4 @@ bot.on('message', async (msg) => {
 });
 
 console.log('Global Fallback Smart Bot successfully started...');
+                    
