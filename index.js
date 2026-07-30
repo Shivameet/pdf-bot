@@ -17,10 +17,10 @@ server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
-// Search function for dokumen.pub
-async function searchDocument(query) {
+// Wikipedia Search Function
+async function searchWikipedia(query) {
   try {
-    const searchUrl = `https://dokumen.pub/search?q=${encodeURIComponent(query)}`;
+    const searchUrl = `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(query)}`;
     const { data } = await axios.get(searchUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
@@ -29,19 +29,21 @@ async function searchDocument(query) {
     const $ = cheerio.load(data);
     
     let results = [];
-    $('a').each((i, el) => {
-      const href = $(el).attr('href');
-      const text = $(el).text().trim();
-      if (href && href.startsWith('https://dokumen.pub/') && text.length > 10 && results.length < 3) {
-        if (!results.some(r => r.url === href)) {
-          results.push({ title: text, url: href });
+    
+    // Wikipedia ki search result list se titles aur links nikalna
+    $('.mw-search-result-heading a').each((i, el) => {
+      if (results.length < 3) {
+        const title = $(el).attr('title');
+        const href = 'https://en.wikipedia.org' + $(el).attr('href');
+        if (title && href) {
+          results.push({ title: title, url: href });
         }
       }
     });
 
     return results;
   } catch (error) {
-    console.error('Scraping Error:', error);
+    console.error('Wikipedia Scraping Error:', error);
     return [];
   }
 }
@@ -50,26 +52,27 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const messageText = msg.text;
 
-  // Agar user private chat mein hai toh hi process karega
   if (msg.chat.type === 'private') {
     if (messageText === '/start') {
-      bot.sendMessage(chatId, 'Namaste! Aapko jo bhi document ya book chahiye, uska naam yahan type karke bhejein.');
+      bot.sendMessage(chatId, 'Wikipedia Bot Ready! Kuch bhi type karke bhejein.');
     } else {
-      bot.sendMessage(chatId, '🔍 Search kiya ja raha hai, kripya intezaar karein...');
+      const processingMsg = await bot.sendMessage(chatId, '🔍 Wikipedia par search ho raha hai...');
       
-      const results = await searchDocument(messageText);
+      const results = await searchWikipedia(messageText);
       
+      bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
+
       if (results.length > 0) {
-        let replyText = 'Aapke liye yeh documents mile hain:\n\n';
+        let replyText = `📚 **Wikipedia Results for:** ${messageText}\n\n`;
         results.forEach((item, index) => {
           replyText += `${index + 1}. ${item.title}\n🔗 ${item.url}\n\n`;
         });
         bot.sendMessage(chatId, replyText);
       } else {
-        bot.sendMessage(chatId, 'Maaf kijiye, is keyword par koi document nahi mila. Kripya koi doosra naam try karein.');
+        bot.sendMessage(chatId, '❌ Wikipedia par is keyword par kuch nahi mila.');
       }
     }
   }
 });
 
-console.log('Bot successfully start ho gaya hai aur messages sun raha hai...');
+console.log('Wikipedia Test Bot start ho gaya hai...');
