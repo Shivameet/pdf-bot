@@ -85,7 +85,7 @@ bot.onText(/\/language/, (msg) => {
   bot.sendMessage(chatId, `🌐 Current mode: Global Smart Search active.\nYou can type in any script or language, and the bot will automatically fetch the best available result with an instant translation toggle.`).catch(() => {});
 });
 
-// Callback Query Handler for instant English / Hindi toggle
+// Callback Query Handler for instant English / Hindi toggle and English Search Fallback
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
@@ -97,7 +97,7 @@ bot.on('callback_query', async (query) => {
       const encodedQuery = parts.slice(2).join('_');
       const searchQuery = decodeURIComponent(encodedQuery);
 
-      await bot.answerCallbackQuery(query.id, { text: `Switching to ${targetLang.toUpperCase()}...` });
+      await bot.answerCallbackQuery(query.id, { text: `Loading result...` });
 
       let processingMsg = await bot.sendMessage(chatId, '⏳ Loading alternative version...').catch(() => {});
       
@@ -141,7 +141,15 @@ bot.on('callback_query', async (query) => {
           bot.sendMessage(chatId, caption, opts).catch(() => {});
         }
       } else {
-        bot.sendMessage(chatId, `❌ Sorry, could not find alternative version.`).catch(() => {});
+        const opts = {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: `🔍 Search in English`, callback_data: `switch_en_${encodeURIComponent(searchQuery)}` }]
+            ]
+          }
+        };
+        bot.sendMessage(chatId, `❌ Maaf kijiye, yeh alternative version nahi mila. Aap niche diye gaye button se English mein search kar sakte hain:`, opts).catch(() => {});
       }
     }
   } catch (err) {
@@ -182,6 +190,7 @@ bot.on('message', async (msg) => {
         caption = caption.substring(0, 1020) + '...';
       }
 
+      // STRICT CONDITION: When result IS FOUND, ONLY show PDF & Language Toggle. NO "Search in English" button!
       const alternateLang = result.currentLang === 'en' ? 'hi' : 'en';
       const alternateLabel = result.currentLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
 
@@ -190,8 +199,7 @@ bot.on('message', async (msg) => {
         reply_markup: {
           inline_keyboard: [
             [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }],
-            [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }],
-            [{ text: `🔍 Search in English`, callback_data: `switch_en_${encodeURIComponent(searchQuery)}` }]
+            [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
           ]
         }
       };
@@ -207,6 +215,7 @@ bot.on('message', async (msg) => {
         bot.sendMessage(chatId, caption, opts).catch(() => {});
       }
     } else {
+      // STRICT CONDITION: When result IS NOT FOUND, ONLY show "Search in English" button!
       const opts = {
         parse_mode: 'Markdown',
         reply_markup: {
@@ -222,4 +231,3 @@ bot.on('message', async (msg) => {
 });
 
 console.log('Global Fallback Smart Bot successfully started...');
-       
