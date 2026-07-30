@@ -26,17 +26,13 @@ server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
-// The Bridge: Smart Text Normalizer & English-First Wikipedia Fetcher
+// Clean Wikipedia Fetcher (English primary with fallback)
 async function getWikipediaData(query) {
-  // Clean up the query and prepare it for English Wikipedia search
-  let cleanedQuery = query.trim();
-
-  // Primary attempt: Search directly on English Wikipedia
-  let langsToTry = ['en'];
+  let langsToTry = ['en', 'hi'];
 
   for (let lang of langsToTry) {
     try {
-      const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanedQuery)}&srlimit=1&format=json`;
+      const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
       const searchRes = await axios.get(searchUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
       
       const searchResults = searchRes.data?.query?.search;
@@ -66,7 +62,7 @@ async function getWikipediaData(query) {
         currentLang: lang
       };
     } catch (error) {
-      console.log(`Failed for lang ${lang}, trying fallback...`);
+      console.log(`Failed for lang ${lang}, trying next fallback...`);
     }
   }
   return null;
@@ -77,18 +73,17 @@ bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const welcomeText = `👋 *Welcome!*\n\n` +
     `🤖 *What does this bot do?*\n` +
-    `Send any topic name to get a short summary and a prominent direct PDF download.\n` +
-    `Powered by Global English Bridge architecture!`;
+    `Send any topic name to get a short summary and a prominent direct PDF download.`;
 
   bot.sendMessage(chatId, welcomeText, { parse_mode: 'Markdown' }).catch(err => console.log('Start error:', err));
 });
 
 bot.onText(/\/language/, (msg) => {
   const chatId = msg.chat.id;
-  bot.sendMessage(chatId, `🌐 Current mode: Global English Bridge active.\nSend any topic name to fetch precise information instantly.`).catch(() => {});
+  bot.sendMessage(chatId, `🌐 Current mode: Standard Search active.\nSend any topic name to fetch information instantly.`).catch(() => {});
 });
 
-// Callback Query Handler for instant options
+// Callback Query Handler
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
@@ -104,7 +99,16 @@ bot.on('callback_query', async (query) => {
 
       let processingMsg = await bot.sendMessage(chatId, '⏳ Loading alternative version...').catch(() => {});
       
-      const result = await getWikipediaData(searchQuery);
+      const searchLangUrl = `https://${targetLang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQuery)}&srlimit=1&format=json`;
+      const searchRes = await axios.get(searchLangUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
+      const searchResults = searchRes.data?.query?.search;
+      
+      let targetTitle = searchQuery;
+      if (searchResults && searchResults.length > 0) {
+        targetTitle = searchResults[0].title;
+      }
+
+      const result = await getWikipediaData(targetTitle);
       
       if (processingMsg) {
         bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
@@ -151,7 +155,7 @@ bot.on('callback_query', async (query) => {
   }
 });
 
-// Message Handler with Bulletproof Bridge Architecture
+// Message Handler
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   
@@ -213,7 +217,7 @@ bot.on('message', async (msg) => {
             ]
           }
         };
-        const politeMessage = `❌ Sorry, direct keyword match not found. Please try typing in standard English characters for best results.`;
+        const politeMessage = `❌ Sorry, direct keyword match not found. Please try searching in English.`;
         await bot.sendMessage(chatId, politeMessage, opts);
       }
     } catch (error) {
@@ -234,4 +238,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('Bridge Architecture Bot successfully started...');
+console.log('Clean Bot successfully started...');
