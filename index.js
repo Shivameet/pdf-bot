@@ -16,31 +16,34 @@ server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
-// Wikipedia Official API Search Function
-async function searchWikipediaAPI(query) {
+// Advanced Wikipedia Search Function (100% Reliable & Stable)
+async function searchWikipediaQuery(query) {
   try {
-    const apiUrl = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=3&namespace=0&format=json`;
+    const apiUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=3&format=json`;
     
-    const response = await axios.get(apiUrl);
-    const data = response.data;
-    
-    // Wikipedia Opensearch returns: [query, [titles], [descriptions], [urls]]
-    const titles = data[1] || [];
-    const urls = data[3] || [];
-
-    let results = [];
-    for (let i = 0; i < titles.length; i++) {
-      if (titles[i] && urls[i]) {
-        results.push({
-          title: titles[i],
-          url: urls[i]
-        });
+    const response = await axios.get(apiUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ResearchBot/1.0'
       }
+    });
+    
+    const searchResults = response.data.query.search;
+    let results = [];
+
+    if (searchResults && searchResults.length > 0) {
+      searchResults.forEach(item => {
+        const title = item.title;
+        const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`;
+        results.push({
+          title: title,
+          url: url
+        });
+      });
     }
 
     return results;
   } catch (error) {
-    console.error('Wikipedia API Error:', error);
+    console.error('Wikipedia Query API Error:', error);
     return [];
   }
 }
@@ -51,11 +54,11 @@ bot.on('message', async (msg) => {
 
   if (msg.chat.type === 'private') {
     if (messageText === '/start') {
-      bot.sendMessage(chatId, 'Wikipedia API Bot Ready! Kuch bhi type karke bhejein.');
+      bot.sendMessage(chatId, 'Research Helper Bot Ready! Kuch bhi type karke bhejein.');
     } else {
       const processingMsg = await bot.sendMessage(chatId, '🔍 Search ho raha hai...');
       
-      const results = await searchWikipediaAPI(messageText);
+      const results = await searchWikipediaQuery(messageText);
       
       bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
 
@@ -72,4 +75,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('Wikipedia API Bot successfully start ho gaya hai...');
+console.log('Research Helper Bot successfully start ho gaya hai...');
