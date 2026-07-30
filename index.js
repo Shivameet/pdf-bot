@@ -11,11 +11,11 @@ bot.setMyCommands([
   { command: 'language', description: 'Change language preference' }
 ]);
 
-// Crash-proof guards
+// Crash-proof guards (Bot ko crash hone se bachane ke liye)
 process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err));
 process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
 
-// Render HTTP Server for hosting/uptime
+// Render HTTP Server for hosting/uptime (Bot ko 24/7 live rakhne ke liye server)
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Bot is running safely!\n');
@@ -66,6 +66,14 @@ async function getWikipediaData(query) {
     }
   }
   return null;
+}
+
+// 2-Line Clean Localized Messages
+function getShortMsg(langCode) {
+  const code = (langCode || 'en').toLowerCase();
+  if (code.startsWith('gu')) return `⚠️ કોઈ પરિણામ નથી મળ્યું. કૃપા કરીને અંગ્રેજી (English) માં શોધો.`;
+  if (code.startsWith('hi')) return `⚠️ कोई परिणाम नहीं मिला। कृपया अंग्रेजी (English) में खोजें।`;
+  return `⚠️ No match found. Please search using English keywords.`;
 }
 
 // Start Command Handler
@@ -166,6 +174,7 @@ bot.on('message', async (msg) => {
 
   if (!msg.text || msg.text.startsWith('/')) return;
   const searchQuery = msg.text;
+  const userLangCode = msg.from ? msg.from.language_code : 'en';
 
   if (msg.chat.type === 'private') {
     let processingMsg;
@@ -217,8 +226,9 @@ bot.on('message', async (msg) => {
             ]
           }
         };
-        const politeMessage = `❌ Sorry, direct keyword match not found. Please try searching in English.`;
-        await bot.sendMessage(chatId, politeMessage, opts);
+        
+        const shortMessage = getShortMsg(userLangCode);
+        await bot.sendMessage(chatId, shortMessage, opts);
       }
     } catch (error) {
       console.error('Message handler execution error:', error);
@@ -233,9 +243,10 @@ bot.on('message', async (msg) => {
           ]
         }
       };
-      bot.sendMessage(chatId, `❌ Technical issue occurred. Please try searching in English.`, opts).catch(() => {});
+      const shortMessage = getShortMsg(userLangCode);
+      bot.sendMessage(chatId, shortMessage, opts).catch(() => {});
     }
   }
 });
 
-console.log('Clean Bot successfully started...');
+console.log('24/7 Live Clean Bot successfully started...');
