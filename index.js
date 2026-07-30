@@ -26,30 +26,11 @@ server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
-// Smart Script / Language Detector
-function detectLanguage(text) {
-  const hindiRegex = /[\u0900-\u097F]/;
-  const gujaratiRegex = /[\u0A80-\u0AFF]/;
-  const tamilRegex = /[\u0B80-\u0BFF]/;
-  const teluguRegex = /[\u0C00-\u0C7F]/;
-
-  if (hindiRegex.test(text)) return 'hi';
-  if (gujaratiRegex.test(text) || tamilRegex.test(text) || teluguRegex.test(text)) return 'regional';
-  return 'en';
-}
-
-// Robust Wikipedia Fetcher with Smart Cross-Language Fallback
-async function getWikipediaData(query, initialLang = 'en') {
-  let langsToTry = [initialLang];
-  
-  if (initialLang === 'regional') {
-    // Regional script ke liye priority: Pehle Hindi (desh ki main bhasha), phir English
-    langsToTry = ['hi', 'en'];
-  } else if (initialLang === 'hi') {
-    langsToTry = ['hi', 'en'];
-  } else {
-    langsToTry = ['en', 'hi'];
-  }
+// Robust Wikipedia Fetcher with Global English Primary Fallback
+async function getWikipediaData(query) {
+  // Always check English Wikipedia first. 
+  // English Wikipedia's global search engine handles regional spellings & names best.
+  let langsToTry = ['en', 'hi'];
 
   for (let lang of langsToTry) {
     try {
@@ -96,14 +77,14 @@ bot.onText(/\/start/, (msg) => {
   const welcomeText = `👋 *Welcome!*\n\n` +
     `🤖 *What does this bot do?*\n` +
     `Send any topic name in any script or language to get a short summary and a prominent direct PDF download.\n` +
-    `Bot features smart cross-language fallback and instant English switching!`;
+    `Bot features smart global search fallback and instant language switching!`;
 
   bot.sendMessage(chatId, welcomeText, { parse_mode: 'Markdown' }).catch(err => console.log('Start error:', err));
 });
 
 bot.onText(/\/language/, (msg) => {
   const chatId = msg.chat.id;
-  bot.sendMessage(chatId, `🌐 Current mode: Smart Universal Auto-Detection active.\nYou can type in any regional script or language, and the bot will automatically fetch the best available result with an instant translation toggle.`).catch(() => {});
+  bot.sendMessage(chatId, `🌐 Current mode: Global Smart Search active.\nYou can type in any script or language, and the bot will automatically fetch the best available result with an instant translation toggle.`).catch(() => {});
 });
 
 // Callback Query Handler for instant English / Hindi toggle
@@ -122,7 +103,16 @@ bot.on('callback_query', async (query) => {
 
       let processingMsg = await bot.sendMessage(chatId, '⏳ Loading alternative version...').catch(() => {});
       
-      const result = await getWikipediaData(searchQuery, targetLang);
+      const searchLangUrl = `https://${targetLang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQuery)}&srlimit=1&format=json`;
+      const searchRes = await axios.get(searchLangUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
+      const searchResults = searchRes.data?.query?.search;
+      
+      let targetTitle = searchQuery;
+      if (searchResults && searchResults.length > 0) {
+        targetTitle = searchResults[0].title;
+      }
+
+      const result = await getWikipediaData(targetTitle);
       
       if (processingMsg) {
         bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
@@ -174,8 +164,6 @@ bot.on('message', async (msg) => {
   const searchQuery = msg.text;
 
   if (msg.chat.type === 'private') {
-    const detectedLang = detectLanguage(searchQuery);
-
     let processingMsg;
     try {
       processingMsg = await bot.sendMessage(chatId, '⏳ Searching...');
@@ -183,7 +171,7 @@ bot.on('message', async (msg) => {
       return;
     }
     
-    const result = await getWikipediaData(searchQuery, detectedLang);
+    const result = await getWikipediaData(searchQuery);
     
     if (processingMsg) {
       bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
@@ -227,4 +215,3 @@ bot.on('message', async (msg) => {
 });
 
 console.log('Global Fallback Smart Bot successfully started...');
-           
