@@ -30,7 +30,7 @@ function detectLanguage(text) {
 }
 
 // Wikipedia Data Fetching (Short summary & Big PDF Button)
-async function get WikipediaData(query, lang = 'en') {
+async function getWikipediaData(query, lang = 'en') {
   try {
     const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
     const searchRes = await axios.get(searchUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 10000 });
@@ -143,7 +143,7 @@ bot.on('message', async (msg) => {
 
   if (msg.chat.type === 'private') {
     const autoLang = detectLanguage(searchQuery);
-    const userLang = autoLang || userLanguages[chatId] || 'en';
+    const userLang = autoLang || userLanguages[chatId]|| 'en';
 
     let processingMsg;
     try {
@@ -159,7 +159,6 @@ bot.on('message', async (msg) => {
     }
 
     if (result) {
-      // Waisa hi bada aur saaf PDF download button jaise pehle tha
       const opts = {
         parse_mode: 'Markdown',
         reply_markup: {
@@ -175,7 +174,9 @@ bot.on('message', async (msg) => {
 
       bot.sendMessage(chatId, replyText, opts).catch(() => {});
     } else {
-      bot.sendMessage(chatId, '❌ No results found for this keyword. Please try another name.').catch(() => {});
+      // Friendly, polite fallback message when no data is found
+      const politeMessage = `🔍 Maaf kijiye, "${searchQuery}" se judi koi jaankari ya file abhi nahi mil paayi.\n\nKripya ek baar spelling check karke koi doosra keyword try karein! ✨`;
+      bot.sendMessage(chatId, politeMessage).catch(() => {});
     }
   }
 });
