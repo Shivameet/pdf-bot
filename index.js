@@ -107,7 +107,6 @@ bot.on('callback_query', async (query) => {
         const alternateLabel = result.currentLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
 
         const opts = {
-          parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
               [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
@@ -115,7 +114,7 @@ bot.on('callback_query', async (query) => {
           }
         };
 
-        // Send main summary with green card (no inline keyboard on main message)
+        // Send main summary with green card (no text above button)
         if (result.image) {
           await bot.sendPhoto(chatId, result.image, { caption: textContent, parse_mode: 'Markdown' }).catch(() => {
             bot.sendMessage(chatId, textContent, { parse_mode: 'Markdown' });
@@ -124,8 +123,8 @@ bot.on('callback_query', async (query) => {
           bot.sendMessage(chatId, textContent, { parse_mode: 'Markdown' });
         }
 
-        // Send separate message for the language toggle button
-        bot.sendMessage(chatId, `🔄 Switch language version:`, opts).catch(() => {});
+        // Send ONLY the button without any extra annoying text
+        bot.sendMessage(chatId, '👇 Choose option:', opts).catch(() => {});
       } else {
         bot.sendMessage(chatId, `❌ Sorry, alternative version not found.`).catch(() => {});
       }
@@ -171,7 +170,6 @@ bot.on('message', async (msg) => {
         const alternateLabel = '🇮🇳 Read in Hindi';
 
         const opts = {
-          parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
               [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
@@ -191,8 +189,8 @@ bot.on('message', async (msg) => {
           bot.sendMessage(chatId, textContent, { parse_mode: 'Markdown' });
         }
 
-        // 2. Send the "Read in Hindi" button as a separate message right below it
-        bot.sendMessage(chatId, `🌐 Language option:`, opts).catch(() => {});
+        // 2. Send ONLY the button right below it without extra text clutter
+        bot.sendMessage(chatId, '👇 Choose option:', opts).catch(() => {});
 
       } else {
         const englishMessage = `⚠️ *No Direct Match Found*\n\nPlease search using standard English keywords.`;
@@ -208,4 +206,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('Two-Message Layout Bot successfully started...');
+console.log('Clean Layout Bot successfully started...');
