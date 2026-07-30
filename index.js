@@ -1,6 +1,6 @@
 /**
  * Production-Ready Telegram Dokumen.pub Scraper Bot
- * Featuring Cheerio HTML Parsing, TTL Caching & Polling Conflict Fix
+ * Featuring Cheerio HTML Parsing, TTL Caching & Webhook Conflict Resolver
  */
 
 const TelegramBot = require('node-telegram-bot-api');
@@ -21,15 +21,17 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-// Fixed polling option to automatically handle conflict terminations
-const bot = new TelegramBot(TOKEN, { 
-  polling: {
-    interval: 300,
-    autoStart: true,
-    params: {
-      timeout: 10
-    }
-  } 
+// Initialize bot without polling first to clear webhooks and prevent 409 conflicts
+const bot = new TelegramBot(TOKEN, { polling: false });
+
+// Force clear any hanging webhooks or previous polling locks
+bot.deleteWebHook().then(() => {
+  console.log('Previous webhooks cleared successfully.');
+  // Start polling after webhook cleanup
+  bot.startPolling();
+}).catch((err) => {
+  console.error('Webhook cleanup warning:', err.message);
+  bot.startPolling();
 });
 
 // Global Error Boundaries
