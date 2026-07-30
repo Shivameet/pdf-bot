@@ -5,14 +5,17 @@ const axios = require('axios');
 const token = process.env.BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
+// Left side menu button commands
 bot.setMyCommands([
   { command: 'start', description: 'Start the bot' },
   { command: 'language', description: 'Change language preference' }
 ]);
 
+// Crash-proof guards
 process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err));
 process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
 
+// Render HTTP Server for hosting/uptime
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Bot is running safely!\n');
@@ -23,6 +26,7 @@ server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
+// Robust Wikipedia Fetcher with Global English Primary Fallback
 async function getWikipediaData(query) {
   let langsToTry = ['en', 'hi'];
 
@@ -64,6 +68,7 @@ async function getWikipediaData(query) {
   return null;
 }
 
+// Start Command Handler
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const welcomeText = `👋 *Welcome!*\n\n` +
@@ -79,6 +84,7 @@ bot.onText(/\/language/, (msg) => {
   bot.sendMessage(chatId, `🌐 Current mode: Global Smart Search active.\nYou can type in any script or language, and the bot will automatically fetch the best available result with an instant translation toggle.`).catch(() => {});
 });
 
+// Callback Query Handler for instant English / Hindi toggle and English Search Fallback
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
@@ -150,6 +156,7 @@ bot.on('callback_query', async (query) => {
   }
 });
 
+// Message Handler with Bulletproof Try-Catch and Guaranteed Fallback Structure
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   
@@ -165,47 +172,63 @@ bot.on('message', async (msg) => {
     let processingMsg;
     try {
       processingMsg = await bot.sendMessage(chatId, '⏳ Searching...');
-    } catch (e) {
-      return;
-    }
-    
-    const result = await getWikipediaData(searchQuery);
-    
-    if (processingMsg) {
-      bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
-    }
-
-    if (result) {
-      let caption = `📄 *${result.title}*\n\n${result.summary}`;
-
-      if (caption.length > 1024) {
-        caption = caption.substring(0, 1020) + '...';
+      
+      // Safe execution wrapped in block to prevent any silent thread freezing
+      const result = await getWikipediaData(searchQuery);
+      
+      if (processingMsg) {
+        bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
       }
 
-      const alternateLang = result.currentLang === 'en' ? 'hi' : 'en';
-      const alternateLabel = result.currentLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
+      if (result) {
+        let caption = `📄 *${result.title}*\n\n${result.summary}`;
 
-      const opts = {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }],
-            [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
-          ]
+        if (caption.length > 1024) {
+          caption = caption.substring(0, 1020) + '...';
         }
-      };
 
-      if (result.image) {
-        bot.sendPhoto(chatId, result.image, {
-          caption: caption,
-          ...opts
-        }).catch(() => {
+        const alternateLang = result.currentLang === 'en' ? 'hi' : 'en';
+        const alternateLabel = result.currentLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
+
+        const opts = {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }],
+              [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
+            ]
+          }
+        };
+
+        if (result.image) {
+          bot.sendPhoto(chatId, result.image, {
+            caption: caption,
+            ...opts
+          }).catch(() => {
+            bot.sendMessage(chatId, caption, opts).catch(() => {});
+          });
+        } else {
           bot.sendMessage(chatId, caption, opts).catch(() => {});
-        });
+        }
       } else {
-        bot.sendMessage(chatId, caption, opts).catch(() => {});
+        // GUARANTEED FALLBACK: When result is null, explicitly fire response with "Search in English" button
+        const opts = {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: `🔍 Search in English`, callback_data: `switch_en_${encodeURIComponent(searchQuery)}` }]
+            ]
+          }
+        };
+        const politeMessage = `❌ Maaf kijiye, yeh keyword direct match nahi hua. Aap niche diye gaye button se English mein search kar sakte hain:`;
+        await bot.sendMessage(chatId, politeMessage, opts);
       }
-    } else {
+    } catch (error) {
+      console.error('Message handler execution error:', error);
+      if (processingMsg) {
+        bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
+      }
+      // SAFETY NET: Even if an exception occurs, never leave user hanging—trigger fallback button
       const opts = {
         parse_mode: 'Markdown',
         reply_markup: {
@@ -214,11 +237,9 @@ bot.on('message', async (msg) => {
           ]
         }
       };
-      const politeMessage = `❌ Maaf kijiye, yeh keyword direct match nahi hua. Aap niche diye gaye button se English mein search kar sakte hain:`;
-      bot.sendMessage(chatId, politeMessage, opts).catch(() => {});
+      bot.sendMessage(chatId, `❌ Kuch takniki samasya aayi. Aap direct English mein search kar sakte hain:`, opts).catch(() => {});
     }
   }
 });
 
 console.log('Global Fallback Smart Bot successfully started...');
-                    
