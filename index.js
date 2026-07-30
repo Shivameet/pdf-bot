@@ -26,10 +26,10 @@ server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
-// Strict Exact-Match Wikipedia Fetcher (Only English primary)
-async function getWikipediaData(query) {
+// Wikipedia Fetcher with Multi-Language Support (English primary, Hindi switchable)
+async function getWikipediaData(query, lang = 'en') {
   try {
-    const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
+    const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
     const searchRes = await axios.get(searchUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
     
     const searchResults = searchRes.data?.query?.search;
@@ -37,8 +37,7 @@ async function getWikipediaData(query) {
 
     const title = searchResults[0].title;
     
-    // Check if the search result closely matches or if it's completely irrelevant
-    const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+    const summaryUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
     const summaryRes = await axios.get(summaryUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
 
     const pageData = summaryRes.data;
@@ -46,22 +45,22 @@ async function getWikipediaData(query) {
 
     const extract = pageData.extract || "Summary not available.";
     const imageUrl = pageData.thumbnail ? pageData.thumbnail.source : null;
-    const pdfUrl = `https://en.wikipedia.org/api/rest_v1/page/pdf/${encodeURIComponent(title)}`;
+    const pdfUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/pdf/${encodeURIComponent(title)}`;
 
     return {
       title: title,
       summary: extract,
       image: imageUrl,
       pdfLink: pdfUrl,
-      currentLang: 'en'
+      currentLang: lang
     };
   } catch (error) {
-    console.log(`Wikipedia fetch error:`, error.message);
+    console.log(`Wikipedia fetch error for lang ${lang}:`, error.message);
   }
   return null;
 }
 
-// Start Command Handler with Short English Disclaimer
+// Start Command Handler with Disclaimer
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const welcomeText = `👋 *Welcome!*\n\n` +
@@ -76,7 +75,7 @@ bot.onText(/\/language/, (msg) => {
   bot.sendMessage(chatId, `🌐 Current mode: Standard Search active.\nSend any topic name to fetch information instantly.`).catch(() => {});
 });
 
-// Callback Query Handler
+// Callback Query Handler (Handles Language Toggle: English <-> Hindi)
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
@@ -84,27 +83,32 @@ bot.on('callback_query', async (query) => {
   try {
     if (data.startsWith('switch_')) {
       const parts = data.split('_');
+      const targetLang = parts[1];
       const encodedQuery = parts.slice(2).join('_');
       const searchQuery = decodeURIComponent(encodedQuery);
 
-      await bot.answerCallbackQuery(query.id, { text: `Loading result...` });
+      await bot.answerCallbackQuery(query.id, { text: `Loading version...` });
 
       let processingMsg = await bot.sendMessage(chatId, '⏳ Loading alternative version...').catch(() => {});
-      const result = await getWikipediaData(searchQuery);
+      const result = await getWikipediaData(searchQuery, targetLang);
       
       if (processingMsg) {
         bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
       }
 
       if (result) {
-        let caption = `📄 *${result.title}*\n\n${result.summary}`;
+        let caption = `📄 *${result.title}* (${result.currentLang.toUpperCase()})\n\n${result.summary}`;
         if (caption.length > 1024) caption = caption.substring(0, 1020) + '...';
+
+        const alternateLang = result.currentLang === 'en' ? 'hi' : 'en';
+        const alternateLabel = result.currentLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
 
         const opts = {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }]
+              [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }],
+              [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
             ]
           }
         };
@@ -117,7 +121,7 @@ bot.on('callback_query', async (query) => {
           bot.sendMessage(chatId, caption, opts).catch(() => {});
         }
       } else {
-        bot.sendMessage(chatId, `❌ Sorry, result not found.`).catch(() => {});
+        bot.sendMessage(chatId, `❌ Sorry, alternative version not found.`).catch(() => {});
       }
     }
   } catch (err) {
@@ -142,7 +146,8 @@ bot.on('message', async (msg) => {
     try {
       processingMsg = await bot.sendMessage(chatId, '⏳ Searching...');
       
-      const result = await getWikipediaData(searchQuery);
+      // Try searching primarily in English first
+      const result = await getWikipediaData(searchQuery, 'en');
       
       if (processingMsg) {
         bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
@@ -155,11 +160,15 @@ bot.on('message', async (msg) => {
           caption = caption.substring(0, 1020) + '...';
         }
 
+        const alternateLang = 'hi';
+        const alternateLabel = '🇮🇳 Read in Hindi';
+
         const opts = {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }]
+              [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }],
+              [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
             ]
           }
         };
@@ -175,35 +184,17 @@ bot.on('message', async (msg) => {
           bot.sendMessage(chatId, caption, opts).catch(() => {});
         }
       } else {
-        const opts = {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: `🔍 Search in English`, callback_data: `switch_en_${encodeURIComponent(searchQuery)}` }]
-            ]
-          }
-        };
-        
-        // Clean short English popup message
         const englishMessage = `⚠️ *No Direct Match Found*\n\nPlease search using standard English keywords.`;
-        await bot.sendMessage(chatId, englishMessage, opts);
+        await bot.sendMessage(chatId, englishMessage, { parse_mode: 'Markdown' });
       }
     } catch (error) {
       console.error('Message handler execution error:', error);
       if (processingMsg) {
         bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
       }
-      const opts = {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: `🔍 Search in English`, callback_data: `switch_en_${encodeURIComponent(searchQuery)}` }]
-          ]
-        }
-      };
-      bot.sendMessage(chatId, `⚠️ *No Direct Match Found*\n\nPlease search using standard English keywords.`, opts).catch(() => {});
+      bot.sendMessage(chatId, `⚠️ *No Direct Match Found*\n\nPlease search using standard English keywords.`, { parse_mode: 'Markdown' }).catch(() => {});
     }
   }
 });
 
-console.log('Final Clean Bot successfully started...');
+console.log('Language-Toggle Bot successfully started...');
