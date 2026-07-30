@@ -1,27 +1,17 @@
 const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
+const http = require('http');
 
 const token = process.env.BOT_TOKEN;
-const app = express();
-app.use(express.json());
+const bot = new TelegramBot(token, { polling: true });
 
-const bot = new TelegramBot(token);
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('PDF Research Helper Bot is running!\n');
+});
+
 const PORT = process.env.PORT || 3000;
-const RENDER_URL = 'https://dashboard.render.com/web/srv-d9lesi7lk1mc738l6emg';
-
-bot.setWebHook(`${RENDER_URL}/bot${token}`);
-
-app.post(`/bot${token}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
-app.get('/', (req, res) => {
-  res.send('PDF Research Helper Bot is running!');
-});
-
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+server.listen(PORT, () => {
+  console.log(`Server is listening on port ${PORT}`);
 });
 
 bot.on('message', (msg) => {
@@ -34,3 +24,5 @@ bot.on('message', (msg) => {
     bot.sendMessage(chatId, `Aapne likha: "${messageText}". Main ise jald hi samajhunga!`);
   }
 });
+
+console.log('Bot successfully start ho gaya hai aur messages sun raha hai...');
