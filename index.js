@@ -69,7 +69,8 @@ async function searchDokumenDocuments(query) {
     const headersConfig = {
       headers: { 
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9'
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://dokumen.pub/'
       },
       timeout: 10000
     };
@@ -82,19 +83,22 @@ async function searchDokumenDocuments(query) {
     const $ = cheerio.load(response.data);
     const documents = [];
 
-    // Parse search result items from the page layout
-    $('div.search-results div.item, .list-unstyled li, .view-all-list tr').each((index, element) => {
-      if (documents.length >= 5) return; // Limit to top 5 results
+    // Updated flexible selectors targeting search result blocks on dokumen.pub
+    $('a').each((index, element) => {
+      if (documents.length >= 5) return;
 
-      const titleElement = $(element).find('a').first();
-      const title = titleElement.text().trim();
-      let link = titleElement.attr('href');
+      const href = $(element).attr('href');
+      const text = $(element).text().trim();
 
-      if (title && link) {
-        if (!link.startsWith('http')) {
-          link = `https://dokumen.pub${link}`;
+      // Filter out utility links and ensure it points to a document page
+      if (href && href.startsWith('/') && href.length > 5 && text.length > 10) {
+        // Avoid duplicate links
+        if (!documents.some(doc => doc.link === `https://dokumen.pub${href}`)) {
+          documents.push({
+            title: text,
+            link: `https://dokumen.pub${href}`
+          });
         }
-        documents.push({ title, link });
       }
     });
 
