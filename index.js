@@ -5,7 +5,7 @@ const axios = require('axios');
 const token = process.env.BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
-// Left side menu button commands (User requirement: Must stay for easy start/language access)
+// Left side menu button commands
 bot.setMyCommands([
   { command: 'start', description: 'Start the bot' },
   { command: 'language', description: 'Change language preference' }
@@ -14,8 +14,6 @@ bot.setMyCommands([
 // Crash-proof guards
 process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err));
 process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
-
-const userLanguages = {};
 
 // Render HTTP Server for hosting/uptime
 const server = http.createServer((req, res) => {
@@ -28,50 +26,67 @@ server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
-// Auto Language Detection from typed text
+// Smart Script / Language Detector
 function detectLanguage(text) {
   const hindiRegex = /[\u0900-\u097F]/;
+  const gujaratiRegex = /[\u0A80-\u0AFF]/;
+  const tamilRegex = /[\u0B80-\u0BFF]/;
+  const teluguRegex = /[\u0C00-\u0C7F]/;
+
   if (hindiRegex.test(text)) return 'hi';
+  if (gujaratiRegex.test(text) || tamilRegex.test(text) || teluguRegex.test(text)) return 'regional';
   return 'en';
 }
 
-// Fetch Wikipedia data dynamically based on target language
-async function getWikipediaData(query, lang = 'en') {
-  try {
-    const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
-    const searchRes = await axios.get(searchUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 10000 });
-    
-    const searchResults = searchRes.data?.query?.search;
-    if (!searchResults || searchResults.length === 0) return null;
-
-    const title = searchResults[0].title;
-    
-    const summaryUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
-    const summaryRes = await axios.get(summaryUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 10000 });
-
-    const pageData = summaryRes.data;
-    let extract = pageData.extract || "Summary not available.";
-    const imageUrl = pageData.thumbnail ? pageData.thumbnail.source : null;
-    
-    // Keep summary short (point-to-point: first 2 sentences)
-    const sentences = extract.match(/[^.!?]+[.!?]+/g);
-    if (sentences && sentences.length > 2) {
-      extract = sentences.slice(0, 2).join(' ');
-    }
-
-    const pdfUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/pdf/${encodeURIComponent(title)}`;
-
-    return {
-      title: title,
-      summary: extract,
-      image: imageUrl,
-      pdfLink: pdfUrl,
-      currentLang: lang
-    };
-  } catch (error) {
-    console.error('API Error:', error.message);
-    return null;
+// Robust Wikipedia Fetcher with Smart Fallback (Regional -> Hindi -> English)
+async function getWikipediaData(query, initialLang = 'en') {
+  let langsToTry = [initialLang];
+  
+  if (initialLang === 'regional') {
+    langsToTry = ['hi', 'en']; // Regional script ke liye pehle Hindi, phir English fallback
+  } else if (initialLang === 'hi') {
+    langsToTry = ['hi', 'en'];
+  } else {
+    langsToTry = ['en', 'hi'];
   }
+
+  for (let lang of langsToTry) {
+    try {
+      const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
+      const searchRes = await axios.get(searchUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
+      
+      const searchResults = searchRes.data?.query?.search;
+      if (!searchResults || searchResults.length === 0) continue;
+
+      const title = searchResults[0].title;
+      
+      const summaryUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+      const summaryRes = await axios.get(summaryUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
+
+      const pageData = summaryRes.data;
+      let extract = pageData.extract || "Summary not available.";
+      const imageUrl = pageData.thumbnail ? pageData.thumbnail.source : null;
+      
+      // Keep summary short (point-to-point: first 2 sentences)
+      const sentences = extract.match(/[^.!?]+[.!?]+/g);
+      if (sentences && sentences.length > 2) {
+        extract = sentences.slice(0, 2).join(' ');
+      }
+
+      const pdfUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/pdf/${encodeURIComponent(title)}`;
+
+      return {
+        title: title,
+        summary: extract,
+        image: imageUrl,
+        pdfLink: pdfUrl,
+        currentLang: lang
+      };
+    } catch (error) {
+      console.log(`Failed for lang ${lang}, trying next...`);
+    }
+  }
+  return null;
 }
 
 // Start Command Handler
@@ -79,18 +94,18 @@ bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const welcomeText = `👋 *Welcome!*\n\n` +
     `🤖 *What does this bot do?*\n` +
-    `Send any topic name to get a short summary and a prominent direct PDF download.\n` +
-    `Bot automatically detects your language, with an option to switch to English instantly!`;
+    `Send any topic name in any script or language to get a short summary and a prominent direct PDF download.\n` +
+    `Bot features smart cross-language fallback and instant English switching!`;
 
   bot.sendMessage(chatId, welcomeText, { parse_mode: 'Markdown' }).catch(err => console.log('Start error:', err));
 });
 
 bot.onText(/\/language/, (msg) => {
   const chatId = msg.chat.id;
-  bot.sendMessage(chatId, `🌐 Current mode: Auto-detection active.\nYou can type in any language (Hindi, French, Spanish, etc.), and you'll get an option to switch to English on every result.`).catch(() => {});
+  bot.sendMessage(chatId, `🌐 Current mode: Smart Universal Auto-Detection active.\nYou can type in any regional script or language, and the bot will automatically fetch the best available result with an instant translation toggle.`).catch(() => {});
 });
 
-// Callback Query Handler for instant English / Native toggle
+// Callback Query Handler for instant English / Hindi toggle
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
@@ -113,12 +128,11 @@ bot.on('callback_query', async (query) => {
       }
 
       if (result) {
-        let caption = `📄 *${result.title}* (${targetLang.toUpperCase()})\n\n${result.summary}`;
+        let caption = `📄 *${result.title}* (${result.currentLang.toUpperCase()})\n\n${result.summary}`;
         if (caption.length > 1024) caption = caption.substring(0, 1020) + '...';
 
-        // Toggle button logic: if currently English, offer native/Hindi, else offer English
-        const alternateLang = targetLang === 'en' ? 'hi' : 'en';
-        const alternateLabel = targetLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
+        const alternateLang = result.currentLang === 'en' ? 'hi' : 'en';
+        const alternateLabel = result.currentLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
 
         const opts = {
           parse_mode: 'Markdown',
@@ -138,7 +152,7 @@ bot.on('callback_query', async (query) => {
           bot.sendMessage(chatId, caption, opts).catch(() => {});
         }
       } else {
-        bot.sendMessage(chatId, `❌ Sorry, could not find data in ${targetLang.toUpperCase()}.`).catch(() => {});
+        bot.sendMessage(chatId, `❌ Sorry, could not find alternative version.`).catch(() => {});
       }
     }
   } catch (err) {
@@ -146,7 +160,7 @@ bot.on('callback_query', async (query) => {
   }
 });
 
-// Message Handler for Search (Zero Contradiction, Clean Flow)
+// Message Handler for Search
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   
@@ -159,7 +173,6 @@ bot.on('message', async (msg) => {
   const searchQuery = msg.text;
 
   if (msg.chat.type === 'private') {
-    // Native auto-detection based on user query
     const detectedLang = detectLanguage(searchQuery);
 
     let processingMsg;
@@ -182,9 +195,8 @@ bot.on('message', async (msg) => {
         caption = caption.substring(0, 1020) + '...';
       }
 
-      // Dynamic toggle button setup (Native vs English switch)
-      const alternateLang = detectedLang === 'en' ? 'hi' : 'en';
-      const alternateLabel = detectedLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
+      const alternateLang = result.currentLang === 'en' ? 'hi' : 'en';
+      const alternateLabel = result.currentLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
 
       const opts = {
         parse_mode: 'Markdown',
@@ -213,4 +225,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('Global Smart-Switch Bot successfully started...');
+console.log('Global Fallback Smart Bot successfully started...');
