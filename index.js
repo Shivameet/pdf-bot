@@ -1,11 +1,16 @@
 /**
- * Production-Ready Telegram Wikipedia PDF Bot
- * Architecture Compliant with Approved Checklist
+ * Production-Ready Telegram Dokumen.pub Scraper Bot
+ * Featuring Cheerio HTML Parsing, TTL Caching & User-Agent Headers
  */
 
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 const axios = require('axios');
+const cheerio = require('cheerio');
+const NodeCache = require('node-cache');
+
+// Initialize Cache with 24 hours TTL (86400 seconds)
+const dokumenCache = new NodeCache({ stdTTL: 86400, checkperiod: 600 });
 
 // ==========================================
 // Phase 1: Core Infrastructure & Stability
@@ -18,7 +23,7 @@ if (!TOKEN) {
 
 const bot = new TelegramBot(TOKEN, { polling: true });
 
-// Global Error Boundaries to prevent process termination
+// Global Error Boundaries
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err.message);
 });
@@ -41,51 +46,66 @@ http.createServer((req, res) => {
 // ==========================================
 bot.setMyCommands([
   { command: 'start', description: 'Initialize bot and view onboarding instructions' },
-  { command: 'language', description: 'View active search engine language configuration' }
+  { command: 'help', description: 'How to use Dokumen search bot' }
 ]).catch((err) => console.error('Failed to register commands:', err.message));
 
 // ==========================================
-// Phase 3: Data Retrieval & Parsing Engine
+// Phase 3: Dokumen.pub Scraper Engine with Caching
 // ==========================================
-async function getWikipediaPDFContent(query) {
+async function searchDokumenDocuments(query) {
   try {
-    const trimmedQuery = query.trim();
+    const trimmedQuery = query.trim().toLowerCase();
     if (!trimmedQuery) return null;
 
-    // 1. Resolve exact title via MediaWiki Action API
-    const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(trimmedQuery)}&srlimit=1&format=json`;
-    const searchRes = await axios.get(searchUrl, {
-      headers: { 'User-Agent': 'ResearchBot/2.0' },
-      timeout: 8000
-    });
-    
-    const searchResults = searchRes.data?.query?.search;
-    if (!searchResults || searchResults.length === 0) return null;
+    // 1. Check if result already exists in RAM Cache
+    if (dokumenCache.has(trimmedQuery)) {
+      console.log(`Cache Hit for query: "${trimmedQuery}"`);
+      return dokumenCache.get(trimmedQuery);
+    }
 
-    const title = searchResults[0].title;
-    
-    // 2. Fetch clean summary via REST API
-    const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
-    const summaryRes = await axios.get(summaryUrl, {
-      headers: { 'User-Agent': 'ResearchBot/2.0' },
-      timeout: 8000
-    });
+    console.log(`Cache Miss. Scraping Dokumen.pub for: "${trimmedQuery}"`);
 
-    const pageData = summaryRes.data;
-    if (pageData.type === 'disambiguation') return null;
-
-    const extract = pageData.extract || "Summary not available.";
-    
-    // 3. Construct native Green PDF Card link format
-    const pdfUrl = `https://en.wikipedia.org/api/rest_v1/page/pdf/${encodeURIComponent(title)}`;
-
-    return {
-      title: title,
-      summary: extract,
-      pdfLink: pdfUrl
+    // Browser-like headers to bypass standard blocks
+    const headersConfig = {
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+      },
+      timeout: 10000
     };
+
+    // 2. Target Dokumen search endpoint
+    const searchUrl = `https://dokumen.pub/search?q=${encodeURIComponent(trimmedQuery)}`;
+    const response = await axios.get(searchUrl, headersConfig);
+    
+    // 3. Load HTML into Cheerio for parsing
+    const $ = cheerio.load(response.data);
+    const documents = [];
+
+    // Parse search result items from the page layout
+    $('div.search-results div.item, .list-unstyled li, .view-all-list tr').each((index, element) => {
+      if (documents.length >= 5) return; // Limit to top 5 results
+
+      const titleElement = $(element).find('a').first();
+      const title = titleElement.text().trim();
+      let link = titleElement.attr('href');
+
+      if (title && link) {
+        if (!link.startsWith('http')) {
+          link = `https://dokumen.pub${link}`;
+        }
+        documents.push({ title, link });
+      }
+    });
+
+    if (documents.length === 0) return null;
+
+    // Store fetched payload in cache
+    dokumenCache.set(trimmedQuery, documents);
+    return documents;
+
   } catch (error) {
-    console.error('Wikipedia API Exception:', error.message);
+    console.error('Dokumen Scraper Exception:', error.message);
     return null;
   }
 }
@@ -97,62 +117,59 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const messageText = msg.text;
 
-  // Enforce private chat scope & validate payload
   if (msg.chat.type !== 'private' || !messageText) return;
 
   // Command: /start
   if (messageText === '/start') {
     const welcomeMsg = 
-      `👋 *Welcome to Research PDF Bot*\n\n` +
-      `🤖 Send any keyword or subject name to generate a summary and professional PDF download card.\n\n` +
-      `⚠️ *Tip:* Use English search keywords for optimal results.`;
+      `👋 *Welcome to Dokumen Search Bot*\n\n` +
+      `📚 Send any book name, topic, or document title to search and get direct download links.\n\n` +
+      `💡 *Example:* Type \`python programming\` or \`java notes\`.`;
     
     return bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' }).catch(() => {});
   }
 
-  // Command: /language
-  if (messageText === '/language') {
-    return bot.sendMessage(chatId, `🌐 Current mode: English Wikipedia Search active.`, { parse_mode: 'Markdown' }).catch(() => {});
+  // Command: /help
+  if (messageText === '/help') {
+    return bot.sendMessage(chatId, `📖 Just type your book or document name, and the bot will fetch the best matching links for you.`, { parse_mode: 'Markdown' }).catch(() => {});
   }
 
-  // Ignore unrecognized commands
   if (messageText.startsWith('/')) return;
 
   let processingMsgId = null;
   try {
-    // Visual Feedback: Temporary loading state notification
-    const processingMsg = await bot.sendMessage(chatId, '⏳ Searching database...');
+    const processingMsg = await bot.sendMessage(chatId, '⏳ Searching dokumen.pub database...');
     processingMsgId = processingMsg.message_id;
 
-    // Execute data resolution
-    const result = await getWikipediaPDFContent(messageText);
+    // Execute web scraping/cache lookup
+    const results = await searchDokumenDocuments(messageText);
 
-    // Purge loading indicator
     if (processingMsgId) {
       await bot.deleteMessage(chatId, processingMsgId).catch(() => {});
     }
 
-    if (result) {
-      // Build unified text layout payload for native Green PDF Card rendering
-      let replyText = `📄 *${result.title}*\n\n`;
-      replyText += `${result.summary}\n\n`;
-      replyText += `📥 [Download PDF File](${result.pdfLink})`;
+    if (results && results.length > 0) {
+      let replyText = `📄 *Search Results for:* \`${messageText}\`\n\n`;
+      
+      results.forEach((item, index) => {
+        replyText += `*${index + 1}.* [${item.title}](${item.link})\n\n`;
+      });
 
       if (replyText.length > 4096) {
         replyText = replyText.substring(0, 4090) + '...';
       }
 
-      await bot.sendMessage(chatId, replyText, { parse_mode: 'Markdown' });
+      await bot.sendMessage(chatId, replyText, { parse_mode: 'Markdown', disable_web_page_preview: true });
     } else {
-      await bot.sendMessage(chatId, `❌ *No Matching Records Found*\n\nPlease check your keywords and try again.`, { parse_mode: 'Markdown' });
+      await bot.sendMessage(chatId, `❌ *No Documents Found*\n\nCould not find any matching documents on dokumen.pub for your query.`, { parse_mode: 'Markdown' });
     }
   } catch (error) {
     console.error('Dispatcher Error:', error.message);
     if (processingMsgId) {
       await bot.deleteMessage(chatId, processingMsgId).catch(() => {});
     }
-    bot.sendMessage(chatId, `⚠️ *System Error*\n\nFailed to process your request. Please try again.`, { parse_mode: 'Markdown' }).catch(() => {});
+    bot.sendMessage(chatId, `⚠️ *System Error*\n\nFailed to fetch documents. Please try again later.`, { parse_mode: 'Markdown' }).catch(() => {});
   }
 });
 
-console.log('Production PDF Bot successfully initialized...');
+console.log('Dokumen Scraper Bot successfully initialized...');
