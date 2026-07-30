@@ -4,9 +4,10 @@ const http = require('http');
 const token = process.env.BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
+// Render ke liye HTTP Server banana zaroori hai taaki port open rahe
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('PDF Research Helper Bot is running!\n');
+  res.end('Bot is running!\n');
 });
 
 const PORT = process.env.PORT || 3000;
