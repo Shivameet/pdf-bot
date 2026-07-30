@@ -11,11 +11,11 @@ bot.setMyCommands([
   { command: 'language', description: 'Change language preference' }
 ]);
 
-// Crash-proof guards (Bot ko crash hone se bachane ke liye)
+// Crash-proof guards
 process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err));
 process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
 
-// Render HTTP Server for hosting/uptime (Bot ko 24/7 live rakhne ke liye server)
+// Render HTTP Server for hosting/uptime
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Bot is running safely!\n');
@@ -26,7 +26,7 @@ server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
-// Clean Wikipedia Fetcher (English primary with fallback)
+// Clean and Robust Wikipedia Fetcher (Supports Multi-words & Spaces)
 async function getWikipediaData(query) {
   let langsToTry = ['en', 'hi'];
 
@@ -44,14 +44,8 @@ async function getWikipediaData(query) {
       const summaryRes = await axios.get(summaryUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
 
       const pageData = summaryRes.data;
-      let extract = pageData.extract || "Summary not available.";
+      const extract = pageData.extract || "Summary not available.";
       const imageUrl = pageData.thumbnail ? pageData.thumbnail.source : null;
-      
-      const sentences = extract.match(/[^.!?]+[.!?]+/g);
-      if (sentences && sentences.length > 2) {
-        extract = sentences.slice(0, 2).join(' ');
-      }
-
       const pdfUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/pdf/${encodeURIComponent(title)}`;
 
       return {
@@ -66,14 +60,6 @@ async function getWikipediaData(query) {
     }
   }
   return null;
-}
-
-// 2-Line Clean Localized Messages
-function getShortMsg(langCode) {
-  const code = (langCode || 'en').toLowerCase();
-  if (code.startsWith('gu')) return `⚠️ કોઈ પરિણામ નથી મળ્યું. કૃપા કરીને અંગ્રેજી (English) માં શોધો.`;
-  if (code.startsWith('hi')) return `⚠️ कोई परिणाम नहीं मिला। कृपया अंग्रेजी (English) में खोजें।`;
-  return `⚠️ No match found. Please search using English keywords.`;
 }
 
 // Start Command Handler
@@ -174,7 +160,6 @@ bot.on('message', async (msg) => {
 
   if (!msg.text || msg.text.startsWith('/')) return;
   const searchQuery = msg.text;
-  const userLangCode = msg.from ? msg.from.language_code : 'en';
 
   if (msg.chat.type === 'private') {
     let processingMsg;
@@ -227,8 +212,9 @@ bot.on('message', async (msg) => {
           }
         };
         
-        const shortMessage = getShortMsg(userLangCode);
-        await bot.sendMessage(chatId, shortMessage, opts);
+        // Always English professional popup message
+        const englishMessage = `⚠️ *No Direct Match Found*\n\nWe couldn't find a direct match for your query. For the best and most accurate results, please try searching using **standard English keywords**.`;
+        await bot.sendMessage(chatId, englishMessage, opts);
       }
     } catch (error) {
       console.error('Message handler execution error:', error);
@@ -243,10 +229,9 @@ bot.on('message', async (msg) => {
           ]
         }
       };
-      const shortMessage = getShortMsg(userLangCode);
-      bot.sendMessage(chatId, shortMessage, opts).catch(() => {});
+      bot.sendMessage(chatId, `⚠️ *No Direct Match Found*\n\nWe couldn't find a direct match for your query. Please try searching using standard English keywords.`, opts).catch(() => {});
     }
   }
 });
 
-console.log('24/7 Live Clean Bot successfully started...');
+console.log('Clean Robust Bot successfully started...');
