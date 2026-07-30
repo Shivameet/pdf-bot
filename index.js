@@ -1,6 +1,6 @@
 /**
  * Production-Ready Telegram Dokumen.pub Scraper Bot
- * Featuring Cheerio HTML Parsing, TTL Caching & User-Agent Headers
+ * Featuring Cheerio HTML Parsing, TTL Caching & Polling Conflict Fix
  */
 
 const TelegramBot = require('node-telegram-bot-api');
@@ -21,7 +21,16 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-const bot = new TelegramBot(TOKEN, { polling: true });
+// Fixed polling option to automatically handle conflict terminations
+const bot = new TelegramBot(TOKEN, { 
+  polling: {
+    interval: 300,
+    autoStart: true,
+    params: {
+      timeout: 10
+    }
+  } 
+});
 
 // Global Error Boundaries
 process.on('uncaughtException', (err) => {
@@ -57,7 +66,6 @@ async function searchDokumenDocuments(query) {
     const trimmedQuery = query.trim().toLowerCase();
     if (!trimmedQuery) return null;
 
-    // 1. Check if result already exists in RAM Cache
     if (dokumenCache.has(trimmedQuery)) {
       console.log(`Cache Hit for query: "${trimmedQuery}"`);
       return dokumenCache.get(trimmedQuery);
@@ -65,7 +73,6 @@ async function searchDokumenDocuments(query) {
 
     console.log(`Cache Miss. Scraping Dokumen.pub for: "${trimmedQuery}"`);
 
-    // Browser-like headers to bypass standard blocks
     const headersConfig = {
       headers: { 
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -75,24 +82,19 @@ async function searchDokumenDocuments(query) {
       timeout: 10000
     };
 
-    // 2. Target Dokumen search endpoint
     const searchUrl = `https://dokumen.pub/search?q=${encodeURIComponent(trimmedQuery)}`;
     const response = await axios.get(searchUrl, headersConfig);
     
-    // 3. Load HTML into Cheerio for parsing
     const $ = cheerio.load(response.data);
     const documents = [];
 
-    // Updated flexible selectors targeting search result blocks on dokumen.pub
     $('a').each((index, element) => {
       if (documents.length >= 5) return;
 
       const href = $(element).attr('href');
       const text = $(element).text().trim();
 
-      // Filter out utility links and ensure it points to a document page
       if (href && href.startsWith('/') && href.length > 5 && text.length > 10) {
-        // Avoid duplicate links
         if (!documents.some(doc => doc.link === `https://dokumen.pub${href}`)) {
           documents.push({
             title: text,
@@ -104,7 +106,6 @@ async function searchDokumenDocuments(query) {
 
     if (documents.length === 0) return null;
 
-    // Store fetched payload in cache
     dokumenCache.set(trimmedQuery, documents);
     return documents;
 
@@ -123,7 +124,6 @@ bot.on('message', async (msg) => {
 
   if (msg.chat.type !== 'private' || !messageText) return;
 
-  // Command: /start
   if (messageText === '/start') {
     const welcomeMsg = 
       `👋 *Welcome to Dokumen Search Bot*\n\n` +
@@ -133,7 +133,6 @@ bot.on('message', async (msg) => {
     return bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' }).catch(() => {});
   }
 
-  // Command: /help
   if (messageText === '/help') {
     return bot.sendMessage(chatId, `📖 Just type your book or document name, and the bot will fetch the best matching links for you.`, { parse_mode: 'Markdown' }).catch(() => {});
   }
@@ -145,7 +144,6 @@ bot.on('message', async (msg) => {
     const processingMsg = await bot.sendMessage(chatId, '⏳ Searching dokumen.pub database...');
     processingMsgId = processingMsg.message_id;
 
-    // Execute web scraping/cache lookup
     const results = await searchDokumenDocuments(messageText);
 
     if (processingMsgId) {
