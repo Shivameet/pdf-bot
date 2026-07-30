@@ -5,22 +5,16 @@ const axios = require('axios');
 const token = process.env.BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
-// Crash hone se bachane ke liye safety guards
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-});
+// Crash-proof guards
+process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err));
+process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-// Users ki language yaad rakhne ke liye memory (Default: 'en')
 const userLanguages = {};
 
-// Render ke liye HTTP Server
+// Render HTTP Server
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Bot is running safely!\n');
+  res.end('Bot is running!\n');
 });
 
 const PORT = process.env.PORT || 3000;
@@ -35,37 +29,34 @@ function detectLanguage(text) {
   return null;
 }
 
-// Wikipedia Data Fetching Function with Safety Try-Catch
-async function getWikipediaData(query, lang = 'en') {
+// Wikipedia Data Fetching (Short summary & Big PDF Button)
+async function get WikipediaData(query, lang = 'en') {
   try {
     const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
-    const searchRes = await axios.get(searchUrl, {
-      headers: { 'User-Agent': 'ResearchBot/1.0' },
-      timeout: 10000 // 10 seconds timeout
-    });
+    const searchRes = await axios.get(searchUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 10000 });
     
     const searchResults = searchRes.data?.query?.search;
-    if (!searchResults || searchResults.length === 0) {
-      return null;
-    }
+    if (!searchResults || searchResults.length === 0) return null;
 
     const title = searchResults[0].title;
     
     const summaryUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
-    const summaryRes = await axios.get(summaryUrl, {
-      headers: { 'User-Agent': 'ResearchBot/1.0' },
-      timeout: 10000
-    });
+    const summaryRes = await axios.get(summaryUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 10000 });
 
     const pageData = summaryRes.data;
-    const extract = pageData.extract || "Summary not available.";
-    const imageUrl = pageData.thumbnail ? pageData.thumbnail.source : null;
+    let extract = pageData.extract || "Summary not available.";
+    
+    // Summary ko chota (point-to-point) rakhne ke liye sirf pehle 2 ya 3 sentences lenge
+    const sentences = extract.match(/[^.!?]+[.!?]+/g);
+    if (sentences && sentences.length > 2) {
+      extract = sentences.slice(0, 2).join(' ');
+    }
+
     const pdfUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/pdf/${encodeURIComponent(title)}`;
 
     return {
       title: title,
       summary: extract,
-      image: imageUrl,
       pdfLink: pdfUrl
     };
   } catch (error) {
@@ -74,7 +65,7 @@ async function getWikipediaData(query, lang = 'en') {
   }
 }
 
-// Flags ke sath Language Selection Menu
+// Flags ke sath Clean Language Menu
 function getLanguageMenu() {
   return {
     reply_markup: {
@@ -86,19 +77,21 @@ function getLanguageMenu() {
         [
           { text: '🇪🇸 Español', callback_data: 'lang_es' },
           { text: '🇫🇷 Français', callback_data: 'lang_fr' }
-        ],
-        [
-          { text: '🇩🇪 Deutsch', callback_data: 'lang_de' },
-          { text: '🇮🇹 Italiano', callback_data: 'lang_it' }
         ]
       ]
     }
   };
 }
 
+// Start Command with Introduction & Clean Language Menu
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-  bot.sendMessage(chatId, '🌐 **Welcome to Research Bot!**\n\nDefault language is English. You can change your language anytime using the options below or by typing /language:', {
+  const welcomeText = `👋 **Welcome!**\n\n` +
+    `🤖 *Yeh bot kya karta hai?*\n` +
+    `Is bot ki madad se aap kisi bhi topic ki choti, saaf-suthri summary aur uska **direct PDF** ek click mein download kar sakte hain.\n\n` +
+    `🌐 *Apni pasand ki bhasha chunein:*`;
+
+  bot.sendMessage(chatId, welcomeText, {
     parse_mode: 'Markdown',
     ...getLanguageMenu()
   }).catch(err => console.log('Start error:', err));
@@ -124,11 +117,9 @@ bot.on('callback_query', async (query) => {
       if (langCode === 'hi') langName = 'हिन्दी (Hindi)';
       else if (langCode === 'es') langName = 'Español';
       else if (langCode === 'fr') langName = 'Français';
-      else if (langCode === 'de') langName = 'Deutsch';
-      else if (langCode === 'it') langName = 'Italiano';
 
       await bot.answerCallbackQuery(query.id, { text: `Language changed to ${langName}` });
-      await bot.sendMessage(chatId, `✅ Language updated to *${langName}*.\n\nNow send any topic name to get the summary and PDF!`, { parse_mode: 'Markdown' });
+      await bot.sendMessage(chatId, `✅ Language updated to *${langName}*.\n\nAb aap koi bhi topic bhej sakte hain!`, { parse_mode: 'Markdown' });
     } else if (data === 'lang_menu') {
       await bot.answerCallbackQuery(query.id);
       await bot.sendMessage(chatId, '🌐 Select your language:', getLanguageMenu());
@@ -143,7 +134,7 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   
   if (msg.voice) {
-    bot.sendMessage(chatId, '🎙️ Voice note received! Text search use karein.').catch(() => {});
+    bot.sendMessage(chatId, '🎙️ Voice note received! (Voice search feature is active, currently text search is processing).').catch(() => {});
     return;
   }
 
@@ -168,38 +159,25 @@ bot.on('message', async (msg) => {
     }
 
     if (result) {
+      // Waisa hi bada aur saaf PDF download button jaise pehle tha
       const opts = {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
+            [{ text: '📥 Download PDF File', url: result.pdfLink }],
             [{ text: '🌐 Change Language / Bhasha Badlein', callback_data: 'lang_menu' }]
           ]
         }
       };
 
-      let caption = `📄 **${result.title}**\n\n`;
-      caption += `${result.summary}\n\n`;
-      caption += `📥 [Download PDF File](${result.pdfLink})`;
+      let replyText = `📄 **${result.title}**\n\n`;
+      replyText += `${result.summary}`;
 
-      if (caption.length > 1024) {
-        caption = caption.substring(0, 1020) + '...';
-      }
-
-      if (result.image) {
-        bot.sendPhoto(chatId, result.image, {
-          caption: caption,
-          parse_mode: 'Markdown',
-          reply_markup: opts.reply_markup
-        }).catch(async () => {
-          await bot.sendMessage(chatId, caption, opts).catch(() => {});
-        });
-      } else {
-        bot.sendMessage(chatId, caption, opts).catch(() => {});
-      }
+      bot.sendMessage(chatId, replyText, opts).catch(() => {});
     } else {
       bot.sendMessage(chatId, '❌ No results found for this keyword. Please try another name.').catch(() => {});
     }
   }
 });
 
-console.log('Crash-proof Multi-language Bot successfully started...');
+console.log('Clean & Final Bot successfully started...');
