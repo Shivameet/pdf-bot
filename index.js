@@ -19,22 +19,23 @@ server.listen(PORT, () => {
 // Wikipedia Official API Search Function
 async function searchWikipediaAPI(query) {
   try {
-    // Wikipedia Opensearch API (Fast & Reliable)
     const apiUrl = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=3&namespace=0&format=json`;
     
     const response = await axios.get(apiUrl);
     const data = response.data;
     
-    // Wikipedia API response format: [query, [titles], [descriptions], [urls]]
-    const titles = data[1];
-    const urls = data[3];
+    // Wikipedia Opensearch returns: [query, [titles], [descriptions], [urls]]
+    const titles = data[1] || [];
+    const urls = data[3] || [];
 
     let results = [];
     for (let i = 0; i < titles.length; i++) {
-      results.push({
-        title: titles[i],
-        url: urls[i]
-      });
+      if (titles[i] && urls[i]) {
+        results.push({
+          title: titles[i],
+          url: urls[i]
+        });
+      }
     }
 
     return results;
