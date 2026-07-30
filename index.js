@@ -1,229 +1,207 @@
+/**
+ * ============================================================================
+ * Production-Ready Telegram Wikipedia PDF Downloader Bot
+ * ============================================================================
+ * * Architecture Specifications:
+ * - Framework: node-telegram-bot-api (Long Polling Engine)
+ * - Network Engine: Axios (REST & MediaWiki Action API integration)
+ * - Infrastructure: Native HTTP Keep-Alive Server (Optimized for Render/PaaS deployment)
+ * - Fault Tolerance: Global exception guards & non-blocking asynchronous wrappers
+ * ============================================================================
+ */
+
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 const axios = require('axios');
 
-const token = process.env.BOT_TOKEN;
-const bot = new TelegramBot(token, { polling: true });
-
-// Left side menu button commands
-bot.setMyCommands([
-  { command: 'start', description: 'Start the bot' },
-  { command: 'language', description: 'Change language preference' }
-]);
-
-// Crash-proof guards
-process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err));
-process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
-
-// Render HTTP Server for hosting/uptime
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Bot is running safely!\n');
-});
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Server is listening on port ${PORT}`);
-});
-
-// Exact Wikipedia Fetcher with Smart Language Linking
-async function getWikipediaData(query, lang = 'en') {
-  try {
-    let targetTitle = query;
-
-    // Agar user Hindi maang raha hai, toh pehle check karein ki English title ka exact Hindi title kya hai
-    if (lang === 'hi') {
-      const translateUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(query)}&prop=langlinks&lllang=hi&format=json`;
-      const transRes = await axios.get(translateUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
-      
-      const pages = transRes.data?.query?.pages;
-      if (pages) {
-        const pageId = Object.keys(pages)[0];
-        if (pages[pageId]?.langlinks && pages[pageId].langlinks.length > 0) {
-          targetTitle = pages[pageId].langlinks[0]['*'];
-        }
-      }
-    } else {
-      // English ke liye standard search
-      const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
-      const searchRes = await axios.get(searchUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
-      const searchResults = searchRes.data?.query?.search;
-      if (!searchResults || searchResults.length === 0) return null;
-      targetTitle = searchResults[0].title;
-    }
-
-    // Ab us exact title ki summary aur PDF link nikalenge
-    const summaryUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(targetTitle)}`;
-    const summaryRes = await axios.get(summaryUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
-
-    const pageData = summaryRes.data;
-    if (pageData.type === 'disambiguation') return null;
-
-    const extract = pageData.extract || "Summary not available.";
-    const imageUrl = pageData.thumbnail ? pageData.thumbnail.source : null;
-    const pdfUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/pdf/${encodeURIComponent(targetTitle)}`;
-
-    return {
-      title: pageData.title || targetTitle,
-      originalQuery: query,
-      summary: extract,
-      image: imageUrl,
-      pdfLink: pdfUrl,
-      currentLang: lang
-    };
-  } catch (error) {
-    console.log(`Wikipedia fetch error for lang ${lang}:`, error.message);
-  }
-  return null;
+// Environment Token Validation
+const TOKEN = process.env.BOT_TOKEN;
+if (!TOKEN) {
+  console.error('CRITICAL ERROR: BOT_TOKEN is missing in environment variables.');
+  process.exit(1);
 }
 
-// Start Command Handler with Disclaimer
-bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
-  const welcomeText = `👋 *Welcome!*\n\n` +
-    `🤖 Send any topic name to get a summary and PDF download.\n\n` +
-    `⚠️ *Tip:* Please search using English keywords for best results.`;
+// Initialize Telegram Bot Instance
+const bot = new TelegramBot(TOKEN, { polling: true });
 
-  bot.sendMessage(chatId, welcomeText, { parse_mode: 'Markdown' }).catch(err => console.log('Start error:', err));
+// ============================================================================
+// 1. Process Guard & Unhandled Error Boundaries
+// ============================================================================
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception Boundary Triggered:', err.message);
 });
 
-bot.onText(/\/language/, (msg) => {
-  const chatId = msg.chat.id;
-  bot.sendMessage(chatId, `🌐 Current mode: Standard Search active.\nSend any topic name to fetch information instantly.`).catch(() => {});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection Boundary Triggered:', reason);
 });
 
-// Callback Query Handler (Handles Language Toggle cleanly without double messages)
-bot.on('callback_query', async (query) => {
-  const chatId = query.message.chat.id;
-  const messageId = query.message.message_id;
-  const data = query.data;
+// ============================================================================
+// 2. Keep-Alive HTTP Server (Cloud Hosting Uptime Protection)
+// ============================================================================
+const SERVER_PORT = process.env.PORT || 3000;
+const keepAliveServer = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Bot service is running and active.\n');
+});
 
+keepAliveServer.listen(SERVER_PORT, () => {
+  console.log(`HTTP Keep-Alive server successfully bound to port ${SERVER_PORT}`);
+});
+
+// ============================================================================
+// 3. Command Registrations (Persistent Client Navigation)
+// ============================================================================
+bot.setMyCommands([
+  { command: 'start', description: 'Initialize the bot and show instructions' },
+  { command: 'help', description: 'View formatting guidelines and search tips' }
+]).catch((err) => console.error('Failed to set commands:', err.message));
+
+// ============================================================================
+// 4. Wikipedia Search & PDF Export Engine
+// ============================================================================
+async function fetchWikipediaContent(query) {
   try {
-    if (data.startsWith('switch_')) {
-      const parts = data.split('_');
-      const targetLang = parts[1];
-      const encodedQuery = parts.slice(2).join('_');
-      const searchQuery = decodeURIComponent(encodedQuery);
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) return null;
 
-      await bot.answerCallbackQuery(query.id, { text: `Switching language...` });
+    // Step A: Resolve query to official Wikipedia page title via MediaWiki Action API
+    const searchEndpoint = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(trimmedQuery)}&srlimit=1&format=json`;
+    const searchResponse = await axios.get(searchEndpoint, {
+      headers: { 'User-Agent': 'TelegramResearchBot/2.0 (Production)' },
+      timeout: 8000
+    });
 
-      const result = await getWikipediaData(searchQuery, targetLang);
-      
-      if (result) {
-        let textContent = `📄 *${result.title}* (${result.currentLang.toUpperCase()})\n\n`;
-        textContent += `${result.summary}\n\n`;
-        textContent += `📥 [Download PDF File](${result.pdfLink})`;
-
-        if (textContent.length > 1024) textContent = textContent.substring(0, 1020) + '...';
-
-        const alternateLang = result.currentLang === 'en' ? 'hi' : 'en';
-        const alternateLabel = result.currentLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
-
-        const opts = {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
-            ]
-          }
-        };
-
-        try {
-          if (result.image) {
-            await bot.editMessageCaption(textContent, {
-              chat_id: chatId,
-              message_id: messageId,
-              parse_mode: 'Markdown',
-              reply_markup: opts.reply_markup
-            });
-          } else {
-            await bot.editMessageText(textContent, {
-              chat_id: chatId,
-              message_id: messageId,
-              parse_mode: 'Markdown',
-              reply_markup: opts.reply_markup
-            });
-          }
-        } catch (editErr) {
-          bot.sendMessage(chatId, textContent, opts).catch(() => {});
-        }
-
-      } else {
-        bot.answerCallbackQuery(query.id, { text: `❌ Exact Hindi version not available for this topic.`, show_alert: true });
-      }
+    const searchHits = searchResponse.data?.query?.search;
+    if (!searchHits || searchHits.length === 0) {
+      return null;
     }
-  } catch (err) {
-    console.log('Callback error:', err);
-  }
-});
 
-// Message Handler
+    const officialTitle = searchHits[0].title;
+
+    // Step B: Retrieve official extract summary via Wikipedia REST API
+    const summaryEndpoint = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(officialTitle)}`;
+    const summaryResponse = await axios.get(summaryEndpoint, {
+      headers: { 'User-Agent': 'TelegramResearchBot/2.0 (Production)' },
+      timeout: 8000
+    });
+
+    const pageData = summaryResponse.data;
+    if (pageData.type === 'disambiguation') {
+      return null; // Reject ambiguous multi-match topics for data precision
+    }
+
+    const summaryText = pageData.extract || 'Summary content is currently unavailable for this entry.';
+    const thumbnailSource = pageData.thumbnail ? pageData.thumbnail.source : null;
+
+    // Step C: Construct official dynamic REST PDF export link
+    const exportPdfUrl = `https://en.wikipedia.org/api/rest_v1/page/pdf/${encodeURIComponent(officialTitle)}`;
+
+    return {
+      title: officialTitle,
+      summary: summaryText,
+      thumbnail: thumbnailSource,
+      pdfLink: exportPdfUrl
+    };
+
+  } catch (error) {
+    console.error(`Wikipedia Resolver Exception [${query}]:`, error.message);
+    return null;
+  }
+}
+
+// ============================================================================
+// 5. Message Event Dispatcher & UI Handler
+// ============================================================================
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
-  
-  if (msg.voice) {
-    bot.sendMessage(chatId, '🎙️ Voice note received! (Processing text search).').catch(() => {});
-    return;
+  const messageText = msg.text;
+
+  // Process exclusively private chat interactions
+  if (msg.chat.type !== 'private') return;
+
+  // Filter out empty payloads or unrecognized parameters
+  if (!messageText) return;
+
+  // Handle Command: /start
+  if (messageText === '/start') {
+    const onboardingText = 
+      `👋 *Welcome to Research PDF Bot*\n\n` +
+      `🤖 Send any keyword or subject name to instantly generate a summarized overview along with a professional **PDF Download Card**.\n\n` +
+      `⚠️ *Tip:* Utilize English search keywords for optimal indexing results.`;
+
+    return bot.sendMessage(chatId, onboardingText, { parse_mode: 'Markdown' })
+      .catch((err) => console.error('Start command delivery failure:', err.message));
   }
 
-  if (!msg.text || msg.text.startsWith('/')) return;
-  const searchQuery = msg.text;
+  // Handle Command: /help
+  if (messageText === '/help') {
+    const helpText = 
+      `📖 *Operational Guidelines*\n\n` +
+      `1. Type clear search terms (e.g., *Quantum Computing*, *Narendra Modi*).\n` +
+      `2. Wait a moment while the engine queries live database indices.\n` +
+      `3. Tap the *[Download PDF File]* link in the rendered card to export document materials instantly.`;
 
-  if (msg.chat.type === 'private') {
-    let processingMsg;
-    try {
-      processingMsg = await bot.sendMessage(chatId, '⏳ Searching...');
-      
-      const result = await getWikipediaData(searchQuery, 'en');
-      
-      if (processingMsg) {
-        bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
-      }
+    return bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' })
+      .catch((err) => console.error('Help command delivery failure:', err.message));
+  }
 
-      if (result) {
-        let textContent = `📄 *${result.title}*\n\n`;
-        textContent += `${result.summary}\n\n`;
-        textContent += `📥 [Download PDF File](${result.pdfLink})`;
+  // Ignore raw command structures other than handled items
+  if (messageText.startsWith('/')) return;
 
-        if (textContent.length > 1024) {
-          textContent = textContent.substring(0, 1020) + '...';
-        }
+  let processingIndicatorId = null;
 
-        const alternateLang = 'hi';
-        const alternateLabel = '🇮🇳 Read in Hindi';
+  try {
+    // Dispatch active status notification
+    const processingMessage = await bot.sendMessage(chatId, '⏳ Querying database and compiling document parameters...');
+    processingIndicatorId = processingMessage.message_id;
 
-        const opts = {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(result.title)}` }]
-            ]
-          }
-        };
+    // Execute data resolution pipeline
+    const resolvedRecord = await fetchWikipediaContent(messageText);
 
-        if (result.image) {
-          await bot.sendPhoto(chatId, result.image, {
-            caption: textContent,
-            ...opts
-          }).catch(() => {
-            bot.sendMessage(chatId, textContent, opts).catch(() => {});
-          });
-        } else {
-          bot.sendMessage(chatId, textContent, opts).catch(() => {});
-        }
-
-      } else {
-        const englishMessage = `⚠️ *No Direct Match Found*\n\nPlease search using standard English keywords.`;
-        await bot.sendMessage(chatId, englishMessage, { parse_mode: 'Markdown' });
-      }
-    } catch (error) {
-      console.error('Message handler execution error:', error);
-      if (processingMsg) {
-        bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
-      }
-      bot.sendMessage(chatId, `⚠️ *No Direct Match Found*\n\nPlease search using standard English keywords.`, { parse_mode: 'Markdown' }).catch(() => {});
+    // Purge processing status notification safely
+    if (processingIndicatorId) {
+      await bot.deleteMessage(chatId, processingIndicatorId).catch(() => {});
     }
+
+    if (resolvedRecord) {
+      // Format text payload inside rigorous Markdown constraints (1024-character caption safe limit bounds)
+      let formattedOutput = `📄 *${resolvedRecord.title}*\n\n`;
+      formattedOutput += `${resolvedRecord.summary}\n\n`;
+      formattedOutput += `📥 [Download PDF File](${resolvedRecord.pdfLink})`;
+
+      if (formattedOutput.length > 1024) {
+        formattedOutput = formattedOutput.substring(0, 1020) + '...';
+      }
+
+      const formattingOptions = { parse_mode: 'Markdown' };
+
+      // Deliver via sendPhoto with integrated caption container or fallback to standard text message
+      if (resolvedRecord.thumbnail) {
+        await bot.sendPhoto(chatId, resolvedRecord.thumbnail, {
+          caption: formattedOutput,
+          ...formattingOptions
+        }).catch(async () => {
+          await bot.sendMessage(chatId, formattedOutput, formattingOptions);
+        });
+      } else {
+        await bot.sendMessage(chatId, formattedOutput, formattingOptions);
+      }
+
+    } else {
+      const errorFeedback = `❌ *No Matching Records Found*\n\nNo verified articles matched your query. Please modify your keywords and try again.`;
+      await bot.sendMessage(chatId, errorFeedback, { parse_mode: 'Markdown' });
+    }
+
+  } catch (error) {
+    console.error('Message routing dispatch exception:', error.message);
+    
+    if (processingIndicatorId) {
+      await bot.deleteMessage(chatId, processingIndicatorId).catch(() => {});
+    }
+
+    bot.sendMessage(chatId, `⚠️ *System Error Encountered*\n\nAn unexpected processing fault occurred. Please re-attempt your query.`, { parse_mode: 'Markdown' })
+       .catch(() => {});
   }
 });
 
-console.log('Smart Link Bot successfully started...');
+console.log('Production-Ready Telegram PDF Bot successfully initialized and polling...');
