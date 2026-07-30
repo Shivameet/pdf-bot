@@ -1,7 +1,19 @@
 const TelegramBot = require('node-telegram-bot-api');
+const http = require('http');
 
 const token = process.env.BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
+
+// Render ke liye chota sa web server taaki port open rahe
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('PDF Research Helper Bot is running!\n');
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server is listening on port ${PORT}`);
+});
 
 bot.on('message', (msg) => {
   const chatId = msg.chat.id;
