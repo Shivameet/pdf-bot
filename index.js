@@ -97,7 +97,10 @@ bot.on('callback_query', async (query) => {
       }
 
       if (result) {
-        let caption = `📄 *${result.title}* (${result.currentLang.toUpperCase()})\n\n${result.summary}`;
+        let caption = `📄 *${result.title}* (${result.currentLang.toUpperCase()})\n\n`;
+        caption += `${result.summary}\n\n`;
+        caption += `📥 [Download PDF File](${result.pdfLink})`;
+
         if (caption.length > 1024) caption = caption.substring(0, 1020) + '...';
 
         const alternateLang = result.currentLang === 'en' ? 'hi' : 'en';
@@ -107,7 +110,6 @@ bot.on('callback_query', async (query) => {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }],
               [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
             ]
           }
@@ -146,7 +148,6 @@ bot.on('message', async (msg) => {
     try {
       processingMsg = await bot.sendMessage(chatId, '⏳ Searching...');
       
-      // Try searching primarily in English first
       const result = await getWikipediaData(searchQuery, 'en');
       
       if (processingMsg) {
@@ -154,7 +155,9 @@ bot.on('message', async (msg) => {
       }
 
       if (result) {
-        let caption = `📄 *${result.title}*\n\n${result.summary}`;
+        let caption = `📄 *${result.title}*\n\n`;
+        caption += `${result.summary}\n\n`;
+        caption += `📥 [Download PDF File](${result.pdfLink})`;
 
         if (caption.length > 1024) {
           caption = caption.substring(0, 1020) + '...';
@@ -167,7 +170,6 @@ bot.on('message', async (msg) => {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }],
               [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
             ]
           }
@@ -197,4 +199,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('Language-Toggle Bot successfully started...');
+console.log('Final PDF & Toggle Bot successfully started...');
