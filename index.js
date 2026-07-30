@@ -26,8 +26,26 @@ server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
-// Robust Wikipedia Fetcher with Global English Primary Fallback
+// Free Translation Helper using public endpoint to convert any language/script to English
+async function translateToEnglish(text) {
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURIComponent(text)}`;
+    const res = await axios.get(url, { timeout: 5000 });
+    if (res.data && res.data[0] && res.data[0][0] && res.data[0][0][0]) {
+      const translated = res.data[0].map(item => item[0]).join('');
+      if (translated && translated.trim() !== '') {
+        return translated.trim();
+      }
+    }
+  } catch (error) {
+    console.log('Translation fallback error, using original query...');
+  }
+  return text;
+}
+
+// Robust Wikipedia Fetcher with Multi-Language and Auto-Translation Fallback
 async function getWikipediaData(query) {
+  // First, try direct query on English and Hindi
   let langsToTry = ['en', 'hi'];
 
   for (let lang of langsToTry) {
@@ -65,6 +83,44 @@ async function getWikipediaData(query) {
       console.log(`Failed for lang ${lang}, trying next fallback...`);
     }
   }
+
+  // If direct search fails, translate query to English and retry English Wikipedia
+  try {
+    const translatedQuery = await translateToEnglish(query);
+    if (translatedQuery && translatedQuery.toLowerCase() !== query.toLowerCase()) {
+      const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(translatedQuery)}&srlimit=1&format=json`;
+      const searchRes = await axios.get(searchUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
+      
+      const searchResults = searchRes.data?.query?.search;
+      if (searchResults && searchResults.length > 0) {
+        const title = searchResults[0].title;
+        const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+        const summaryRes = await axios.get(summaryUrl, { headers: { 'User-Agent': 'ResearchBot/1.0' }, timeout: 8000 });
+
+        const pageData = summaryRes.data;
+        let extract = pageData.extract || "Summary not available.";
+        const imageUrl = pageData.thumbnail ? pageData.thumbnail.source : null;
+        
+        const sentences = extract.match(/[^.!?]+[.!?]+/g);
+        if (sentences && sentences.length > 2) {
+          extract = sentences.slice(0, 2).join(' ');
+        }
+
+        const pdfUrl = `https://en.wikipedia.org/api/rest_v1/page/pdf/${encodeURIComponent(title)}`;
+
+        return {
+          title: title,
+          summary: extract,
+          image: imageUrl,
+          pdfLink: pdfUrl,
+          currentLang: 'en'
+        };
+      }
+    }
+  } catch (err) {
+    console.log('Translated search fallback failed:', err);
+  }
+
   return null;
 }
 
@@ -148,7 +204,7 @@ bot.on('callback_query', async (query) => {
             ]
           }
         };
-        bot.sendMessage(chatId, `❌ Maaf kijiye, yeh alternative version nahi mila. Aap niche diye gaye button se English mein search kar sakte hain:`, opts).catch(() => {});
+        bot.sendMessage(chatId, `❌ Sorry, alternative version not found. You can search in English using the button below:`, opts).catch(() => {});
       }
     }
   } catch (err) {
@@ -156,7 +212,7 @@ bot.on('callback_query', async (query) => {
   }
 });
 
-// Message Handler with Bulletproof Try-Catch and Guaranteed Fallback Structure
+// Message Handler with Free Translation Integration and Bulletproof Fallback
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   
@@ -173,7 +229,6 @@ bot.on('message', async (msg) => {
     try {
       processingMsg = await bot.sendMessage(chatId, '⏳ Searching...');
       
-      // Safe execution wrapped in block to prevent any silent thread freezing
       const result = await getWikipediaData(searchQuery);
       
       if (processingMsg) {
@@ -211,7 +266,6 @@ bot.on('message', async (msg) => {
           bot.sendMessage(chatId, caption, opts).catch(() => {});
         }
       } else {
-        // GUARANTEED FALLBACK: When result is null, explicitly fire response with "Search in English" button
         const opts = {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -220,7 +274,7 @@ bot.on('message', async (msg) => {
             ]
           }
         };
-        const politeMessage = `❌ Maaf kijiye, yeh keyword direct match nahi hua. Aap niche diye gaye button se English mein search kar sakte hain:`;
+        const politeMessage = `❌ Sorry, direct keyword match not found. You can search in English using the button below:`;
         await bot.sendMessage(chatId, politeMessage, opts);
       }
     } catch (error) {
@@ -228,7 +282,6 @@ bot.on('message', async (msg) => {
       if (processingMsg) {
         bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
       }
-      // SAFETY NET: Even if an exception occurs, never leave user hanging—trigger fallback button
       const opts = {
         parse_mode: 'Markdown',
         reply_markup: {
@@ -237,9 +290,10 @@ bot.on('message', async (msg) => {
           ]
         }
       };
-      bot.sendMessage(chatId, `❌ Kuch takniki samasya aayi. Aap direct English mein search kar sakte hain:`, opts).catch(() => {});
+      bot.sendMessage(chatId, `❌ Technical issue occurred. You can search directly in English:`, opts).catch(() => {});
     }
   }
 });
 
 console.log('Global Fallback Smart Bot successfully started...');
+    
