@@ -97,11 +97,11 @@ bot.on('callback_query', async (query) => {
       }
 
       if (result) {
-        let caption = `📄 *${result.title}* (${result.currentLang.toUpperCase()})\n\n`;
-        caption += `${result.summary}\n\n`;
-        caption += `📥 [Download PDF File](${result.pdfLink})`;
+        let textContent = `📄 *${result.title}* (${result.currentLang.toUpperCase()})\n\n`;
+        textContent += `${result.summary}\n\n`;
+        textContent += `📥 [Download PDF File](${result.pdfLink})`;
 
-        if (caption.length > 1024) caption = caption.substring(0, 1020) + '...';
+        if (textContent.length > 1024) textContent = textContent.substring(0, 1020) + '...';
 
         const alternateLang = result.currentLang === 'en' ? 'hi' : 'en';
         const alternateLabel = result.currentLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
@@ -115,13 +115,17 @@ bot.on('callback_query', async (query) => {
           }
         };
 
+        // Send main summary with green card (no inline keyboard on main message)
         if (result.image) {
-          bot.sendPhoto(chatId, result.image, { caption: caption, ...opts }).catch(() => {
-            bot.sendMessage(chatId, caption, opts).catch(() => {});
+          await bot.sendPhoto(chatId, result.image, { caption: textContent, parse_mode: 'Markdown' }).catch(() => {
+            bot.sendMessage(chatId, textContent, { parse_mode: 'Markdown' });
           });
         } else {
-          bot.sendMessage(chatId, caption, opts).catch(() => {});
+          bot.sendMessage(chatId, textContent, { parse_mode: 'Markdown' });
         }
+
+        // Send separate message for the language toggle button
+        bot.sendMessage(chatId, `🔄 Switch language version:`, opts).catch(() => {});
       } else {
         bot.sendMessage(chatId, `❌ Sorry, alternative version not found.`).catch(() => {});
       }
@@ -155,12 +159,12 @@ bot.on('message', async (msg) => {
       }
 
       if (result) {
-        let caption = `📄 *${result.title}*\n\n`;
-        caption += `${result.summary}\n\n`;
-        caption += `📥 [Download PDF File](${result.pdfLink})`;
+        let textContent = `📄 *${result.title}*\n\n`;
+        textContent += `${result.summary}\n\n`;
+        textContent += `📥 [Download PDF File](${result.pdfLink})`;
 
-        if (caption.length > 1024) {
-          caption = caption.substring(0, 1020) + '...';
+        if (textContent.length > 1024) {
+          textContent = textContent.substring(0, 1020) + '...';
         }
 
         const alternateLang = 'hi';
@@ -175,16 +179,21 @@ bot.on('message', async (msg) => {
           }
         };
 
+        // 1. Send the summary with the perfect green PDF file card
         if (result.image) {
-          bot.sendPhoto(chatId, result.image, {
-            caption: caption,
-            ...opts
+          await bot.sendPhoto(chatId, result.image, {
+            caption: textContent,
+            parse_mode: 'Markdown'
           }).catch(() => {
-            bot.sendMessage(chatId, caption, opts).catch(() => {});
+            bot.sendMessage(chatId, textContent, { parse_mode: 'Markdown' });
           });
         } else {
-          bot.sendMessage(chatId, caption, opts).catch(() => {});
+          bot.sendMessage(chatId, textContent, { parse_mode: 'Markdown' });
         }
+
+        // 2. Send the "Read in Hindi" button as a separate message right below it
+        bot.sendMessage(chatId, `🌐 Language option:`, opts).catch(() => {});
+
       } else {
         const englishMessage = `⚠️ *No Direct Match Found*\n\nPlease search using standard English keywords.`;
         await bot.sendMessage(chatId, englishMessage, { parse_mode: 'Markdown' });
@@ -199,4 +208,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('Final Green Card & Toggle Bot successfully started...');
+console.log('Two-Message Layout Bot successfully started...');
