@@ -5,10 +5,10 @@ const axios = require('axios');
 const token = process.env.BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
-// Menu button commands set karna
+// Left side menu button commands (User requirement: Must stay for easy start/language access)
 bot.setMyCommands([
   { command: 'start', description: 'Start the bot' },
-  { command: 'language', description: 'Change language' }
+  { command: 'language', description: 'Change language preference' }
 ]);
 
 // Crash-proof guards
@@ -17,7 +17,7 @@ process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:
 
 const userLanguages = {};
 
-// Render HTTP Server
+// Render HTTP Server for hosting/uptime
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Bot is running safely!\n');
@@ -28,14 +28,14 @@ server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
-// Auto Language Detection
+// Auto Language Detection from typed text
 function detectLanguage(text) {
   const hindiRegex = /[\u0900-\u097F]/;
   if (hindiRegex.test(text)) return 'hi';
-  return null;
+  return 'en';
 }
 
-// Wikipedia Data Fetching (Thumbnail, Short Summary & Circular PDF Link)
+// Fetch Wikipedia data dynamically based on target language
 async function getWikipediaData(query, lang = 'en') {
   try {
     const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
@@ -53,7 +53,7 @@ async function getWikipediaData(query, lang = 'en') {
     let extract = pageData.extract || "Summary not available.";
     const imageUrl = pageData.thumbnail ? pageData.thumbnail.source : null;
     
-    // Summary ko chota (point-to-point) rakhne ke liye sirf pehle 2 sentences
+    // Keep summary short (point-to-point: first 2 sentences)
     const sentences = extract.match(/[^.!?]+[.!?]+/g);
     if (sentences && sentences.length > 2) {
       extract = sentences.slice(0, 2).join(' ');
@@ -65,7 +65,8 @@ async function getWikipediaData(query, lang = 'en') {
       title: title,
       summary: extract,
       image: imageUrl,
-      pdfLink: pdfUrl
+      pdfLink: pdfUrl,
+      currentLang: lang
     };
   } catch (error) {
     console.error('API Error:', error.message);
@@ -73,77 +74,79 @@ async function getWikipediaData(query, lang = 'en') {
   }
 }
 
-// Flags ke sath Language Selection Menu (Sirf ek button jisko click karke list khule)
-function getLanguageMenu() {
-  return {
-    reply_markup: {
-      inline_keyboard: [
-        [
-          { text: '🇺🇸 English', callback_data: 'lang_en' },
-          { text: '🇮🇳 हिन्दी (Hindi)', callback_data: 'lang_hi' }
-        ],
-        [
-          { text: '🇪🇸 Español', callback_data: 'lang_es' },
-          { text: '🇫🇷 Français', callback_data: 'lang_fr' }
-        ]
-      ]
-    }
-  };
-}
-
-// Start Command (Clean Welcome Message without direct boxes)
+// Start Command Handler
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-  const welcomeText = `👋 **Welcome!**\n\n` +
+  const welcomeText = `👋 *Welcome!*\n\n` +
     `🤖 *What does this bot do?*\n` +
-    `You can get a short, clean summary and direct PDF of any topic.\n\n` +
-    `Click below to change your language if needed:`;
+    `Send any topic name to get a short summary and a prominent direct PDF download.\n` +
+    `Bot automatically detects your language, with an option to switch to English instantly!`;
 
-  const opts = {
-    parse_mode: 'Markdown',
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: '🌐 Select Language / Bhasha Chunein', callback_data: 'show_lang_menu' }]
-      ]
-    }
-  };
-
-  bot.sendMessage(chatId, welcomeText, opts).catch(err => console.log('Start error:', err));
+  bot.sendMessage(chatId, welcomeText, { parse_mode: 'Markdown' }).catch(err => console.log('Start error:', err));
 });
 
 bot.onText(/\/language/, (msg) => {
   const chatId = msg.chat.id;
-  bot.sendMessage(chatId, '🌐 Select your preferred language / Apni bhasha chunein:', getLanguageMenu())
-    .catch(err => console.log('Language menu error:', err));
+  bot.sendMessage(chatId, `🌐 Current mode: Auto-detection active.\nYou can type in any language (Hindi, French, Spanish, etc.), and you'll get an option to switch to English on every result.`).catch(() => {});
 });
 
-// Language change handler via buttons
+// Callback Query Handler for instant English / Native toggle
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
 
   try {
-    if (data === 'show_lang_menu') {
-      await bot.answerCallbackQuery(query.id);
-      await bot.sendMessage(chatId, '🌐 Select your preferred language / Apni bhasha chunein:', getLanguageMenu());
-    } else if (data.startsWith('lang_')) {
-      const langCode = data.split('_')[1];
-      userLanguages[chatId] = langCode;
+    if (data.startsWith('switch_')) {
+      const parts = data.split('_');
+      const targetLang = parts[1];
+      const encodedQuery = parts.slice(2).join('_');
+      const searchQuery = decodeURIComponent(encodedQuery);
 
-      let langName = 'English';
-      if (langCode === 'hi') langName = 'हिन्दी (Hindi)';
-      else if (langCode === 'es') langName = 'Español';
-      else if (langCode === 'fr') langName = 'Français';
+      await bot.answerCallbackQuery(query.id, { text: `Switching to ${targetLang.toUpperCase()}...` });
 
-      await bot.answerCallbackQuery(query.id, { text: `Language changed to ${langName}` });
-      await bot.sendMessage(chatId, `✅ Language updated to *${langName}*.\n\nNow send any topic name!`, { parse_mode: 'Markdown' });
+      let processingMsg = await bot.sendMessage(chatId, '⏳ Loading alternative version...').catch(() => {});
+      
+      const result = await getWikipediaData(searchQuery, targetLang);
+      
+      if (processingMsg) {
+        bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
+      }
+
+      if (result) {
+        let caption = `📄 *${result.title}* (${targetLang.toUpperCase()})\n\n${result.summary}`;
+        if (caption.length > 1024) caption = caption.substring(0, 1020) + '...';
+
+        // Toggle button logic: if currently English, offer native/Hindi, else offer English
+        const alternateLang = targetLang === 'en' ? 'hi' : 'en';
+        const alternateLabel = targetLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
+
+        const opts = {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }],
+              [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
+            ]
+          }
+        };
+
+        if (result.image) {
+          bot.sendPhoto(chatId, result.image, { caption: caption, ...opts }).catch(() => {
+            bot.sendMessage(chatId, caption, opts).catch(() => {});
+          });
+        } else {
+          bot.sendMessage(chatId, caption, opts).catch(() => {});
+        }
+      } else {
+        bot.sendMessage(chatId, `❌ Sorry, could not find data in ${targetLang.toUpperCase()}.`).catch(() => {});
+      }
     }
   } catch (err) {
     console.log('Callback error:', err);
   }
 });
 
-// Message handler for searching topics
+// Message Handler for Search (Zero Contradiction, Clean Flow)
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   
@@ -156,8 +159,8 @@ bot.on('message', async (msg) => {
   const searchQuery = msg.text;
 
   if (msg.chat.type === 'private') {
-    const autoLang = detectLanguage(searchQuery);
-    const userLang = autoLang || userLanguages[chatId] || 'en';
+    // Native auto-detection based on user query
+    const detectedLang = detectLanguage(searchQuery);
 
     let processingMsg;
     try {
@@ -166,27 +169,29 @@ bot.on('message', async (msg) => {
       return;
     }
     
-    const result = await getWikipediaData(searchQuery, userLang);
+    const result = await getWikipediaData(searchQuery, detectedLang);
     
     if (processingMsg) {
       bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
     }
 
     if (result) {
-      // Original Circular PDF Download Button format
-      let caption = `📄 **${result.title}**\n\n`;
-      caption += `${result.summary}\n\n`;
-      caption += `📥 [${result.title}.pdf](${result.pdfLink})`;
+      let caption = `📄 *${result.title}*\n\n${result.summary}`;
 
       if (caption.length > 1024) {
         caption = caption.substring(0, 1020) + '...';
       }
 
+      // Dynamic toggle button setup (Native vs English switch)
+      const alternateLang = detectedLang === 'en' ? 'hi' : 'en';
+      const alternateLabel = detectedLang === 'en' ? '🇮🇳 Read in Hindi' : '🇺🇸 Read in English';
+
       const opts = {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
-            [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }]
+            [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }],
+            [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
           ]
         }
       };
@@ -194,10 +199,9 @@ bot.on('message', async (msg) => {
       if (result.image) {
         bot.sendPhoto(chatId, result.image, {
           caption: caption,
-          parse_mode: 'Markdown',
-          reply_markup: opts.reply_markup
-        }).catch(async () => {
-          await bot.sendMessage(chatId, caption, opts).catch(() => {});
+          ...opts
+        }).catch(() => {
+          bot.sendMessage(chatId, caption, opts).catch(() => {});
         });
       } else {
         bot.sendMessage(chatId, caption, opts).catch(() => {});
@@ -209,5 +213,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('100% Perfect Fixed Bot successfully started...');
-      
+console.log('Global Smart-Switch Bot successfully started...');
