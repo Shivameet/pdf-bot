@@ -28,8 +28,6 @@ server.listen(PORT, () => {
 
 // Robust Wikipedia Fetcher with Global English Primary Fallback
 async function getWikipediaData(query) {
-  // Always check English Wikipedia first. 
-  // English Wikipedia's global search engine handles regional spellings & names best.
   let langsToTry = ['en', 'hi'];
 
   for (let lang of langsToTry) {
@@ -192,7 +190,8 @@ bot.on('message', async (msg) => {
         reply_markup: {
           inline_keyboard: [
             [{ text: `📥 Download PDF File (${result.title})`, url: result.pdfLink }],
-            [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }]
+            [{ text: alternateLabel, callback_data: `switch_${alternateLang}_${encodeURIComponent(searchQuery)}` }],
+            [{ text: `🔍 Search in English`, callback_data: `switch_en_${encodeURIComponent(searchQuery)}` }]
           ]
         }
       };
@@ -208,10 +207,19 @@ bot.on('message', async (msg) => {
         bot.sendMessage(chatId, caption, opts).catch(() => {});
       }
     } else {
-      const politeMessage = `❌ Maaf kijiye, yeh keyword nahi mila. Kripya spelling check karke doosra naam try karein.`;
-      bot.sendMessage(chatId, politeMessage).catch(() => {});
+      const opts = {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: `🔍 Search in English`, callback_data: `switch_en_${encodeURIComponent(searchQuery)}` }]
+          ]
+        }
+      };
+      const politeMessage = `❌ Maaf kijiye, yeh keyword direct match nahi hua. Aap niche diye gaye button se English mein search kar sakte hain:`;
+      bot.sendMessage(chatId, politeMessage, opts).catch(() => {});
     }
   }
 });
 
 console.log('Global Fallback Smart Bot successfully started...');
+       
