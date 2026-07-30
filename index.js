@@ -16,35 +16,41 @@ server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
-// Advanced Wikipedia Search Function (100% Reliable & Stable)
-async function searchWikipediaQuery(query) {
+// Wikipedia se Clean Summary aur Direct PDF/Print Link nikalne ka Function
+async function getWikipediaPDFLink(query) {
   try {
-    const apiUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=3&format=json`;
-    
-    const response = await axios.get(apiUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ResearchBot/1.0'
-      }
+    // Pehle search API se exact page title nikalenge
+    const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=1&format=json`;
+    const searchRes = await axios.get(searchUrl, {
+      headers: { 'User-Agent': 'ResearchBot/1.0' }
     });
     
-    const searchResults = response.data.query.search;
-    let results = [];
-
-    if (searchResults && searchResults.length > 0) {
-      searchResults.forEach(item => {
-        const title = item.title;
-        const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`;
-        results.push({
-          title: title,
-          url: url
-        });
-      });
+    const searchResults = searchRes.data.query.search;
+    if (!searchResults || searchResults.length === 0) {
+      return null;
     }
 
-    return results;
+    const title = searchResults[0].title;
+    
+    // Ab us page ki summary (extract) nikalenge
+    const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+    const summaryRes = await axios.get(summaryUrl, {
+      headers: { 'User-Agent': 'ResearchBot/1.0' }
+    });
+
+    const extract = summaryRes.data.extract || "Summary uplabdh nahi hai.";
+    
+    // Wikipedia ka official PDF/Print export link (Jisse user seedha PDF download kar sake)
+    const pdfUrl = `https://en.wikipedia.org/api/rest_v1/page/pdf/${encodeURIComponent(title)}`;
+
+    return {
+      title: title,
+      summary: extract,
+      pdfLink: pdfUrl
+    };
   } catch (error) {
-    console.error('Wikipedia Query API Error:', error);
-    return [];
+    console.error('API Error:', error);
+    return null;
   }
 }
 
@@ -54,25 +60,25 @@ bot.on('message', async (msg) => {
 
   if (msg.chat.type === 'private') {
     if (messageText === '/start') {
-      bot.sendMessage(chatId, 'Research Helper Bot Ready! Kuch bhi type karke bhejein.');
+      bot.sendMessage(chatId, 'PDF Search Bot Ready! Topic ka naam bhejein.');
     } else {
-      const processingMsg = await bot.sendMessage(chatId, '🔍 Search ho raha hai...');
+      const processingMsg = await bot.sendMessage(chatId, '⏳ Tajjassus mein hoon, dhundh raha hoon...');
       
-      const results = await searchWikipediaQuery(messageText);
+      const result = await getWikipediaPDFLink(messageText);
       
       bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
 
-      if (results.length > 0) {
-        let replyText = `📚 **Results for:** ${messageText}\n\n`;
-        results.forEach((item, index) => {
-          replyText += `${index + 1}. ${item.title}\n🔗 ${item.url}\n\n`;
-        });
-        bot.sendMessage(chatId, replyText);
+      if (result) {
+        let replyText = `📄 **${result.title}**\n\n`;
+        replyText += `${result.summary}\n\n`;
+        replyText += `📥 [Download PDF File](${result.pdfLink})`;
+
+        bot.sendMessage(chatId, replyText, { parse_mode: 'Markdown' });
       } else {
-        bot.sendMessage(chatId, '❌ Is keyword par kuch nahi mila. Doosra naam try karein.');
+        bot.sendMessage(chatId, '❌ Is keyword par kuch nahi mila.');
       }
     }
   }
 });
 
-console.log('Research Helper Bot successfully start ho gaya hai...');
+console.log('PDF Bot successfully start ho gaya hai...');
