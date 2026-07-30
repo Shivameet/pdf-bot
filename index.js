@@ -38,12 +38,13 @@ function detectLanguage(text) {
   return 'en';
 }
 
-// Robust Wikipedia Fetcher with Smart Fallback (Regional -> Hindi -> English)
+// Robust Wikipedia Fetcher with Smart Cross-Language Fallback
 async function getWikipediaData(query, initialLang = 'en') {
   let langsToTry = [initialLang];
   
   if (initialLang === 'regional') {
-    langsToTry = ['hi', 'en']; // Regional script ke liye pehle Hindi, phir English fallback
+    // Regional script ke liye priority: Pehle Hindi (desh ki main bhasha), phir English
+    langsToTry = ['hi', 'en'];
   } else if (initialLang === 'hi') {
     langsToTry = ['hi', 'en'];
   } else {
@@ -83,7 +84,7 @@ async function getWikipediaData(query, initialLang = 'en') {
         currentLang: lang
       };
     } catch (error) {
-      console.log(`Failed for lang ${lang}, trying next...`);
+      console.log(`Failed for lang ${lang}, trying next fallback...`);
     }
   }
   return null;
@@ -226,3 +227,4 @@ bot.on('message', async (msg) => {
 });
 
 console.log('Global Fallback Smart Bot successfully started...');
+           
