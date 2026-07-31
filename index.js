@@ -1,12 +1,10 @@
 /**
  * Production-Ready Telegram Document Search Bot
- * Optimized with Direct Multi-Fallback Engine
+ * Optimized with Direct Dokumen.pub Search URL Generator
  */
 
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
-const axios = require('axios');
-const cheerio = require('cheerio');
 const NodeCache = require('node-cache');
 
 // Initialize Cache with 24 hours TTL
@@ -54,68 +52,36 @@ bot.setMyCommands([
 ]).catch((err) => console.error('Failed to register commands:', err.message));
 
 // ==========================================
-// Robust Document Search Engine
+// Direct Search URL Builder Engine
 // ==========================================
 async function searchDokumenDocuments(query) {
   try {
-    const trimmedQuery = query.trim().toLowerCase();
+    const trimmedQuery = query.trim();
     if (!trimmedQuery) return null;
 
-    if (dokumenCache.has(trimmedQuery)) {
+    if (dokumenCache.has(trimmedQuery.toLowerCase())) {
       console.log(`Cache Hit for query: "${trimmedQuery}"`);
-      return dokumenCache.get(trimmedQuery);
+      return dokumenCache.get(trimmedQuery.toLowerCase());
     }
 
-    console.log(`Cache Miss. Searching documents for: "${trimmedQuery}"`);
+    console.log(`Generating direct search results for: "${trimmedQuery}"`);
 
-    const documents = [];
-
-    // Method: Direct Bing / Open Search fallback which never blocks server IPs
-    const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(trimmedQuery + ' site:dokumen.pub')}`;
+    // Construct direct search link for dokumen.pub which reliably opens search results page
+    const directSearchUrl = `https://dokumen.pub/search?q=${encodeURIComponent(trimmedQuery)}`;
     
-    const response = await axios.get(searchUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9'
-      },
-      timeout: 10000
-    });
-
-    const $ = cheerio.load(response.data);
-
-    // Parse Bing search results
-    $('.b_algo').each((index, element) => {
-      if (documents.length >= 5) return;
-
-      const titleEl = $(element).find('h2 a');
-      let title = titleEl.text().trim();
-      let link = titleEl.attr('href');
-
-      if (link && link.includes('dokumen.pub')) {
-        if (title.length > 3 && !documents.some(doc => doc.link === link)) {
-          documents.push({ title, link });
-        }
+    const results = [
+      {
+        title: `🔍 View search results for "${trimmedQuery}" on Dokumen.pub`,
+        link: directSearchUrl
       }
-    });
+    ];
 
-    // If Bing returns nothing, provide a direct web search option link as fallback
-    if (documents.length === 0) {
-      documents.push({
-        title: `🔍 Search "${query}" directly on Dokumen.pub`,
-        link: `https://dokumen.pub/search?q=${encodeURIComponent(query)}`
-      });
-    }
-
-    dokumenCache.set(trimmedQuery, documents);
-    return documents;
+    dokumenCache.set(trimmedQuery.toLowerCase(), results);
+    return results;
 
   } catch (error) {
     console.error('Search Engine Exception:', error.message);
-    // Fallback direct link if network or parsing fails
-    return [{
-      title: `🔍 Open search results for "${query}"`,
-      link: `https://dokumen.pub/search?q=${encodeURIComponent(query)}`
-    }];
+    return null;
   }
 }
 
@@ -131,21 +97,21 @@ bot.on('message', async (msg) => {
   if (messageText === '/start') {
     const welcomeMsg = 
       `👋 *Welcome to Document Search Bot*\n\n` +
-      `📚 Send any book name, topic, or document title to search and get direct download links.\n\n` +
+      `📚 Send any book name, topic, or document title to search and get direct search links.\n\n` +
       `💡 *Example:* Type \`python programming\` or \`java notes\`.`;
     
     return bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' }).catch(() => {});
   }
 
   if (messageText === '/help') {
-    return bot.sendMessage(chatId, `📖 Just type your book or document name, and the bot will fetch the best matching links for you.`, { parse_mode: 'Markdown' }).catch(() => {});
+    return bot.sendMessage(chatId, `📖 Just type your book or document name, and the bot will fetch the direct search link for you.`, { parse_mode: 'Markdown' }).catch(() => {});
   }
 
   if (messageText.startsWith('/')) return;
 
   let processingMsgId = null;
   try {
-    const processingMsg = await bot.sendMessage(chatId, '⏳ Searching documents database...');
+    const processingMsg = await bot.sendMessage(chatId, '⏳ Generating direct search link...');
     processingMsgId = processingMsg.message_id;
 
     const results = await searchDokumenDocuments(messageText);
@@ -161,7 +127,7 @@ bot.on('message', async (msg) => {
         replyText += `*${index + 1}.* [${item.title}](${item.link})\n\n`;
       });
 
-      replyText += `_Tip: Link par click karke browser mein captcha verify karke download karein._`;
+      replyText += `_Tip: Link par click karke browser mein apni book select karke download karein._`;
 
       if (replyText.length > 4096) {
         replyText = replyText.substring(0, 4090) + '...';
@@ -169,14 +135,14 @@ bot.on('message', async (msg) => {
 
       await bot.sendMessage(chatId, replyText, { parse_mode: 'Markdown', disable_web_page_preview: true });
     } else {
-      await bot.sendMessage(chatId, `❌ *No Documents Found*\n\nCould not find any matching documents for your query. Try a simpler keyword.`, { parse_mode: 'Markdown' });
+      await bot.sendMessage(chatId, `❌ *No Documents Found*\n\nCould not generate search link. Try a simpler keyword.`, { parse_mode: 'Markdown' });
     }
   } catch (error) {
     console.error('Dispatcher Error:', error.message);
     if (processingMsgId) {
       await bot.deleteMessage(chatId, processingMsgId).catch(() => {});
     }
-    bot.sendMessage(chatId, `⚠️ *System Error*\n\nFailed to fetch documents. Please try again later.`, { parse_mode: 'Markdown' }).catch(() => {});
+    bot.sendMessage(chatId, `⚠️ *System Error*\n\nPlease try again later.`, { parse_mode: 'Markdown' }).catch(() => {});
   }
 });
 
