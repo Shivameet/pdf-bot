@@ -1,10 +1,12 @@
 /**
  * Production-Ready Telegram Document Search Bot
- * Direct Dokumen.pub Internal Link Engine
+ * Final Stable Build - Optimized for Clean Execution
  */
 
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
+const axios = require('axios');
+const cheerio = require('cheerio');
 const NodeCache = require('node-cache');
 
 // Initialize Cache with 24 hours TTL
@@ -52,36 +54,63 @@ bot.setMyCommands([
 ]).catch((err) => console.error('Failed to register commands:', err.message));
 
 // ==========================================
-// Direct Internal Search Link Generator
+// Stable Document Search Engine
 // ==========================================
 async function searchDokumenDocuments(query) {
   try {
-    const trimmedQuery = query.trim();
+    const trimmedQuery = query.trim().toLowerCase();
     if (!trimmedQuery) return null;
 
-    if (dokumenCache.has(trimmedQuery.toLowerCase())) {
+    if (dokumenCache.has(trimmedQuery)) {
       console.log(`Cache Hit for query: "${trimmedQuery}"`);
-      return dokumenCache.get(trimmedQuery.toLowerCase());
+      return dokumenCache.get(trimmedQuery);
     }
 
-    console.log(`Generating direct internal link for: "${trimmedQuery}"`);
+    console.log(`Searching documents for: "${trimmedQuery}"`);
 
-    // Direct internal search query route on dokumen.pub
-    const directUrl = `https://dokumen.pub/search?q=${encodeURIComponent(trimmedQuery)}`;
+    const documents = [];
+    const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(trimmedQuery + ' site:dokumen.pub')}`;
     
-    const results = [
-      {
-        title: `📁 Open Direct Dokumen Search for "${trimmedQuery}"`,
-        link: directUrl
-      }
-    ];
+    const response = await axios.get(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+      },
+      timeout: 10000
+    });
 
-    dokumenCache.set(trimmedQuery.toLowerCase(), results);
-    return results;
+    const $ = cheerio.load(response.data);
+
+    $('.b_algo').each((index, element) => {
+      if (documents.length >= 5) return;
+
+      const titleEl = $(element).find('h2 a');
+      let title = titleEl.text().trim();
+      let link = titleEl.attr('href');
+
+      if (link && link.includes('dokumen.pub')) {
+        if (title.length > 3 && !documents.some(doc => doc.link === link)) {
+          documents.push({ title, link });
+        }
+      }
+    });
+
+    if (documents.length === 0) {
+      documents.push({
+        title: `🔍 Direct Search Page for "${query}"`,
+        link: `https://dokumen.pub/search?q=${encodeURIComponent(query)}`
+      });
+    }
+
+    dokumenCache.set(trimmedQuery, documents);
+    return documents;
 
   } catch (error) {
     console.error('Search Engine Exception:', error.message);
-    return null;
+    return [{
+      title: `🔍 Direct Search Page for "${query}"`,
+      link: `https://dokumen.pub/search?q=${encodeURIComponent(query)}`
+    }];
   }
 }
 
@@ -97,21 +126,21 @@ bot.on('message', async (msg) => {
   if (messageText === '/start') {
     const welcomeMsg = 
       `👋 *Welcome to Document Search Bot*\n\n` +
-      `📚 Send any book name or document title to get its direct internal link.\n\n` +
-      `💡 *Example:* Type \`Indo-Pak War 1971\`.`;
+      `📚 Send any book name or document title to search and get direct access links.\n\n` +
+      `💡 *Example:* Type \`python programming\` or \`java notes\`.`;
     
     return bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' }).catch(() => {});
   }
 
   if (messageText === '/help') {
-    return bot.sendMessage(chatId, `📖 Just type your book name, and the bot will fetch the direct link for you.`, { parse_mode: 'Markdown' }).catch(() => {});
+    return bot.sendMessage(chatId, `📖 Just type your book or document name, and the bot will fetch the matching links for you.`, { parse_mode: 'Markdown' }).catch(() => {});
   }
 
   if (messageText.startsWith('/')) return;
 
   let processingMsgId = null;
   try {
-    const processingMsg = await bot.sendMessage(chatId, '⏳ Generating direct link...');
+    const processingMsg = await bot.sendMessage(chatId, '⏳ Searching documents database...');
     processingMsgId = processingMsg.message_id;
 
     const results = await searchDokumenDocuments(messageText);
@@ -121,13 +150,11 @@ bot.on('message', async (msg) => {
     }
 
     if (results && results.length > 0) {
-      let replyText = `📄 *Direct Link for:* \`${messageText}\`\n\n`;
+      let replyText = `📄 *Search Results for:* \`${messageText}\`\n\n`;
       
       results.forEach((item, index) => {
         replyText += `*${index + 1}.* [${item.title}](${item.link})\n\n`;
       });
-
-      replyText += `_Tip: Link par click karke seedha website par search results dekhein._`;
 
       if (replyText.length > 4096) {
         replyText = replyText.substring(0, 4090) + '...';
@@ -135,7 +162,7 @@ bot.on('message', async (msg) => {
 
       await bot.sendMessage(chatId, replyText, { parse_mode: 'Markdown', disable_web_page_preview: true });
     } else {
-      await bot.sendMessage(chatId, `❌ *No Documents Found*\n\nCould not generate link. Try a simpler keyword.`, { parse_mode: 'Markdown' });
+      await bot.sendMessage(chatId, `❌ *No Documents Found*\n\nCould not find any matching documents. Try a simpler keyword.`, { parse_mode: 'Markdown' });
     }
   } catch (error) {
     console.error('Dispatcher Error:', error.message);
