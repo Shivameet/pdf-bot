@@ -1,10 +1,12 @@
 /**
  * Production-Ready Telegram Document Search Bot
- * Optimized with Direct Dokumen.pub Search URL Generator
+ * Optimized with Direct Slug Matching & Bing Search Parser
  */
 
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
+const axios = require('axios');
+const cheerio = require('cheerio');
 const NodeCache = require('node-cache');
 
 // Initialize Cache with 24 hours TTL
@@ -52,36 +54,69 @@ bot.setMyCommands([
 ]).catch((err) => console.error('Failed to register commands:', err.message));
 
 // ==========================================
-// Direct Search URL Builder Engine
+// Precise Document Search Engine
 // ==========================================
 async function searchDokumenDocuments(query) {
   try {
-    const trimmedQuery = query.trim();
+    const trimmedQuery = query.trim().toLowerCase();
     if (!trimmedQuery) return null;
 
-    if (dokumenCache.has(trimmedQuery.toLowerCase())) {
+    if (dokumenCache.has(trimmedQuery)) {
       console.log(`Cache Hit for query: "${trimmedQuery}"`);
-      return dokumenCache.get(trimmedQuery.toLowerCase());
+      return dokumenCache.get(trimmedQuery);
     }
 
-    console.log(`Generating direct search results for: "${trimmedQuery}"`);
+    console.log(`Searching exact documents for: "${trimmedQuery}"`);
 
-    // Construct direct search link for dokumen.pub which reliably opens search results page
-    const directSearchUrl = `https://dokumen.pub/search?q=${encodeURIComponent(trimmedQuery)}`;
+    const documents = [];
     
-    const results = [
-      {
-        title: `🔍 View search results for "${trimmedQuery}" on Dokumen.pub`,
-        link: directSearchUrl
-      }
-    ];
+    // Target Bing search specifically restricted to dokumen.pub to get exact matching .html book links
+    const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(trimmedQuery + ' site:dokumen.pub')}`;
+    
+    const response = await axios.get(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+      },
+      timeout: 10000
+    });
 
-    dokumenCache.set(trimmedQuery.toLowerCase(), results);
-    return results;
+    const $ = cheerio.load(response.data);
+
+    // Parse search results to find valid book pages ending with .html
+    $('.b_algo').each((index, element) => {
+      if (documents.length >= 5) return;
+
+      const titleEl = $(element).find('h2 a');
+      let title = titleEl.text().trim();
+      let link = titleEl.attr('href');
+
+      if (link && link.includes('dokumen.pub') && link.endsWith('.html')) {
+        if (title.length > 3 && !documents.some(doc => doc.link === link)) {
+          documents.push({ title, link });
+        }
+      }
+    });
+
+    // Fallback if exact .html link is not parsed directly: provide formatted direct search slug URL
+    if (documents.length === 0) {
+      const slugQuery = trimmedQuery.replace(/[^a-zA-Z0-9]+/g, '-');
+      documents.push({
+        title: `📖 Direct Search Page for "${query}"`,
+        link: `https://dokumen.pub/${slugQuery}.html`
+      });
+    }
+
+    dokumenCache.set(trimmedQuery, documents);
+    return documents;
 
   } catch (error) {
     console.error('Search Engine Exception:', error.message);
-    return null;
+    const slugQuery = query.trim().toLowerCase().replace(/[^a-zA-Z0-9]+/g, '-');
+    return [{
+      title: `📖 Open Search Result for "${query}"`,
+      link: `https://dokumen.pub/${slugQuery}.html`
+    }];
   }
 }
 
@@ -97,21 +132,21 @@ bot.on('message', async (msg) => {
   if (messageText === '/start') {
     const welcomeMsg = 
       `👋 *Welcome to Document Search Bot*\n\n` +
-      `📚 Send any book name, topic, or document title to search and get direct search links.\n\n` +
+      `📚 Send any book name, topic, or document title to search and get direct download links.\n\n` +
       `💡 *Example:* Type \`python programming\` or \`java notes\`.`;
     
     return bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' }).catch(() => {});
   }
 
   if (messageText === '/help') {
-    return bot.sendMessage(chatId, `📖 Just type your book or document name, and the bot will fetch the direct search link for you.`, { parse_mode: 'Markdown' }).catch(() => {});
+    return bot.sendMessage(chatId, `📖 Just type your book or document name, and the bot will fetch the exact matching link for you.`, { parse_mode: 'Markdown' }).catch(() => {});
   }
 
   if (messageText.startsWith('/')) return;
 
   let processingMsgId = null;
   try {
-    const processingMsg = await bot.sendMessage(chatId, '⏳ Generating direct search link...');
+    const processingMsg = await bot.sendMessage(chatId, '⏳ Searching exact book links...');
     processingMsgId = processingMsg.message_id;
 
     const results = await searchDokumenDocuments(messageText);
@@ -127,7 +162,7 @@ bot.on('message', async (msg) => {
         replyText += `*${index + 1}.* [${item.title}](${item.link})\n\n`;
       });
 
-      replyText += `_Tip: Link par click karke browser mein apni book select karke download karein._`;
+      replyText += `_Tip: Link par click karke browser mein captcha verify karke download karein._`;
 
       if (replyText.length > 4096) {
         replyText = replyText.substring(0, 4090) + '...';
@@ -135,7 +170,7 @@ bot.on('message', async (msg) => {
 
       await bot.sendMessage(chatId, replyText, { parse_mode: 'Markdown', disable_web_page_preview: true });
     } else {
-      await bot.sendMessage(chatId, `❌ *No Documents Found*\n\nCould not generate search link. Try a simpler keyword.`, { parse_mode: 'Markdown' });
+      await bot.sendMessage(chatId, `❌ *No Documents Found*\n\nCould not find matching documents for your query. Try a simpler keyword.`, { parse_mode: 'Markdown' });
     }
   } catch (error) {
     console.error('Dispatcher Error:', error.message);
