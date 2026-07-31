@@ -1,12 +1,11 @@
 /**
- * Production-Ready Telegram Multi-Source Document Search Bot
- * Featuring Direct Repository Routing & Webhook Conflict Resolver
+ * Production-Ready Telegram Document Search Bot
+ * Featuring Official DuckDuckGo JSON API & Webhook Conflict Resolver
  */
 
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 const axios = require('axios');
-const cheerio = require('cheerio');
 const NodeCache = require('node-cache');
 
 // Initialize Cache with 24 hours TTL (86400 seconds)
@@ -39,6 +38,7 @@ process.on('unhandledRejection', (reason) => {
   console.error('Unhandled Rejection:', reason);
 });
 
+// Lightweight HTTP Keep-Alive Server for Render Uptime
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -53,7 +53,7 @@ bot.setMyCommands([
 ]).catch((err) => console.error('Failed to register commands:', err.message));
 
 // ==========================================
-// Phase 3: Robust Multi-Engine Document Search
+// Phase 3: Official DuckDuckGo API Search Engine
 // ==========================================
 async function searchDokumenDocuments(query) {
   try {
@@ -65,59 +65,67 @@ async function searchDokumenDocuments(query) {
       return dokumenCache.get(trimmedQuery);
     }
 
-    console.log(`Cache Miss. Searching documents for: "${trimmedQuery}"`);
+    console.log(`Cache Miss. Searching documents via API for: "${trimmedQuery}"`);
 
-    const headersConfig = {
-      headers: { 
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-      },
-      timeout: 10000
-    };
-
-    // Using an open search index endpoint that aggregates document repositories cleanly
-    const searchUrl = `https://lite.duckduckgo.com/lite/`;
-    const params = new URLSearchParams();
-    params.append('q', trimmedQuery + ' pdf dokumen');
-
-    const response = await axios.post(searchUrl, params, {
-      headers: {
-        ...headersConfig.headers,
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      timeout: 10000
-    });
-
-    const $ = cheerio.load(response.data);
+    // Using DuckDuckGo Instant Answer / API endpoint for direct results
+    const searchUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(trimmedQuery + ' dokumen.pub')}&format=json&no_html=1&skip_disambig=1`;
+    
+    const response = await axios.get(searchUrl, { timeout: 10000 });
+    const data = response.data;
     const documents = [];
 
-    // Parse Lite version table rows which never fail or block
-    $('tr').each((index, element) => {
-      if (documents.length >= 5) return;
+    // 1. Check RelatedTopics from DuckDuckGo API
+    if (data && data.RelatedTopics && Array.isArray(data.RelatedTopics)) {
+      data.RelatedTopics.forEach(item => {
+        if (documents.length >= 5) return;
+        if (item.FirstURL && item.Text) {
+          let link = item.FirstURL;
+          let title = item.Text;
+          if (link.includes('dokumen.pub') && !documents.some(doc => doc.link === link)) {
+            documents.push({ title, link });
+          }
+        }
+      });
+    }
 
-      const linkEl = $(element).find('.result-link');
-      if (linkEl.length > 0) {
-        let title = linkEl.text().trim();
-        let link = linkEl.attr('href');
+    // 2. If no direct results found in API, fallback to DuckDuckGo HTML API parser
+    if (documents.length === 0) {
+      const fallbackUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(trimmedQuery + ' site:dokumen.pub')}`;
+      const htmlRes = await axios.get(fallbackUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        },
+        timeout: 10000
+      });
 
-        if (link && link.startsWith('http')) {
-          // Clean up redirect links if any
-          if (link.includes('uddg=')) {
+      const cheerio = require('cheerio');
+      const $ = cheerio.load(htmlRes.data);
+
+      $('.result').each((index, element) => {
+        if (documents.length >= 5) return;
+        const titleEl = $(element).find('.result__title a');
+        const urlEl = $(element).find('.result__url');
+        
+        let title = titleEl.text().trim();
+        let rawLink = urlEl.attr('href') || titleEl.attr('href');
+
+        if (rawLink) {
+          let actualLink = rawLink;
+          if (rawLink.includes('uddg=')) {
             try {
-              const match = link.match(/uddg=([^&]+)/);
+              const match = rawLink.match(/uddg=([^&]+)/);
               if (match && match[1]) {
-                link = decodeURIComponent(match[1]);
+                actualLink = decodeURIComponent(match[1]);
               }
             } catch (e) {}
           }
 
-          if (title.length > 3 && !documents.some(doc => doc.link === link)) {
-            documents.push({ title, link });
+          if (actualLink.includes('dokumen.pub') && !documents.some(doc => doc.link === actualLink)) {
+            documents.push({ title: title || actualLink, link: actualLink });
           }
         }
-      }
-    });
+      });
+    }
 
     if (documents.length === 0) return null;
 
