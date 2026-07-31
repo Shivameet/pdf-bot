@@ -1,18 +1,19 @@
 /**
  * Production-Ready Telegram Document Search Bot
- * Featuring Official DuckDuckGo JSON API & Webhook Conflict Resolver
+ * Optimized with Direct Multi-Fallback Engine
  */
 
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 const axios = require('axios');
+const cheerio = require('cheerio');
 const NodeCache = require('node-cache');
 
-// Initialize Cache with 24 hours TTL (86400 seconds)
+// Initialize Cache with 24 hours TTL
 const dokumenCache = new NodeCache({ stdTTL: 86400, checkperiod: 600 });
 
 // ==========================================
-// Phase 1: Core Infrastructure & Stability
+// Core Infrastructure & Stability
 // ==========================================
 const TOKEN = process.env.BOT_TOKEN;
 if (!TOKEN) {
@@ -53,7 +54,7 @@ bot.setMyCommands([
 ]).catch((err) => console.error('Failed to register commands:', err.message));
 
 // ==========================================
-// Phase 3: Official DuckDuckGo API Search Engine
+// Robust Document Search Engine
 // ==========================================
 async function searchDokumenDocuments(query) {
   try {
@@ -65,81 +66,61 @@ async function searchDokumenDocuments(query) {
       return dokumenCache.get(trimmedQuery);
     }
 
-    console.log(`Cache Miss. Searching documents via API for: "${trimmedQuery}"`);
+    console.log(`Cache Miss. Searching documents for: "${trimmedQuery}"`);
 
-    // Using DuckDuckGo Instant Answer / API endpoint for direct results
-    const searchUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(trimmedQuery + ' dokumen.pub')}&format=json&no_html=1&skip_disambig=1`;
-    
-    const response = await axios.get(searchUrl, { timeout: 10000 });
-    const data = response.data;
     const documents = [];
 
-    // 1. Check RelatedTopics from DuckDuckGo API
-    if (data && data.RelatedTopics && Array.isArray(data.RelatedTopics)) {
-      data.RelatedTopics.forEach(item => {
-        if (documents.length >= 5) return;
-        if (item.FirstURL && item.Text) {
-          let link = item.FirstURL;
-          let title = item.Text;
-          if (link.includes('dokumen.pub') && !documents.some(doc => doc.link === link)) {
-            documents.push({ title, link });
-          }
-        }
-      });
-    }
+    // Method: Direct Bing / Open Search fallback which never blocks server IPs
+    const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(trimmedQuery + ' site:dokumen.pub')}`;
+    
+    const response = await axios.get(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+      },
+      timeout: 10000
+    });
 
-    // 2. If no direct results found in API, fallback to DuckDuckGo HTML API parser
+    const $ = cheerio.load(response.data);
+
+    // Parse Bing search results
+    $('.b_algo').each((index, element) => {
+      if (documents.length >= 5) return;
+
+      const titleEl = $(element).find('h2 a');
+      let title = titleEl.text().trim();
+      let link = titleEl.attr('href');
+
+      if (link && link.includes('dokumen.pub')) {
+        if (title.length > 3 && !documents.some(doc => doc.link === link)) {
+          documents.push({ title, link });
+        }
+      }
+    });
+
+    // If Bing returns nothing, provide a direct web search option link as fallback
     if (documents.length === 0) {
-      const fallbackUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(trimmedQuery + ' site:dokumen.pub')}`;
-      const htmlRes = await axios.get(fallbackUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-        },
-        timeout: 10000
-      });
-
-      const cheerio = require('cheerio');
-      const $ = cheerio.load(htmlRes.data);
-
-      $('.result').each((index, element) => {
-        if (documents.length >= 5) return;
-        const titleEl = $(element).find('.result__title a');
-        const urlEl = $(element).find('.result__url');
-        
-        let title = titleEl.text().trim();
-        let rawLink = urlEl.attr('href') || titleEl.attr('href');
-
-        if (rawLink) {
-          let actualLink = rawLink;
-          if (rawLink.includes('uddg=')) {
-            try {
-              const match = rawLink.match(/uddg=([^&]+)/);
-              if (match && match[1]) {
-                actualLink = decodeURIComponent(match[1]);
-              }
-            } catch (e) {}
-          }
-
-          if (actualLink.includes('dokumen.pub') && !documents.some(doc => doc.link === actualLink)) {
-            documents.push({ title: title || actualLink, link: actualLink });
-          }
-        }
+      documents.push({
+        title: `🔍 Search "${query}" directly on Dokumen.pub`,
+        link: `https://dokumen.pub/search?q=${encodeURIComponent(query)}`
       });
     }
-
-    if (documents.length === 0) return null;
 
     dokumenCache.set(trimmedQuery, documents);
     return documents;
 
   } catch (error) {
     console.error('Search Engine Exception:', error.message);
-    return null;
+    // Fallback direct link if network or parsing fails
+    return [{
+      title: `🔍 Open search results for "${query}"`,
+      link: `https://dokumen.pub/search?q=${encodeURIComponent(query)}`
+    }];
   }
 }
 
 // ==========================================
-// Phase 4: Message Dispatcher & Layout Engine
+// Message Dispatcher & Layout Engine
 // ==========================================
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
@@ -179,6 +160,8 @@ bot.on('message', async (msg) => {
       results.forEach((item, index) => {
         replyText += `*${index + 1}.* [${item.title}](${item.link})\n\n`;
       });
+
+      replyText += `_Tip: Link par click karke browser mein captcha verify karke download karein._`;
 
       if (replyText.length > 4096) {
         replyText = replyText.substring(0, 4090) + '...';
