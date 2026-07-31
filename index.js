@@ -1,6 +1,6 @@
 /**
- * Production-Ready Telegram Dokumen.pub Scraper Bot
- * Featuring Cheerio HTML Parsing, TTL Caching & Webhook Conflict Resolver
+ * Production-Ready Telegram Dokumen Search Bot
+ * Featuring DuckDuckGo HTML Routing & Webhook Conflict Resolver
  */
 
 const TelegramBot = require('node-telegram-bot-api');
@@ -21,20 +21,16 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-// Initialize bot without polling first to clear webhooks and prevent 409 conflicts
 const bot = new TelegramBot(TOKEN, { polling: false });
 
-// Force clear any hanging webhooks or previous polling locks
 bot.deleteWebHook().then(() => {
   console.log('Previous webhooks cleared successfully.');
-  // Start polling after webhook cleanup
   bot.startPolling();
 }).catch((err) => {
   console.error('Webhook cleanup warning:', err.message);
   bot.startPolling();
 });
 
-// Global Error Boundaries
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err.message);
 });
@@ -43,7 +39,6 @@ process.on('unhandledRejection', (reason) => {
   console.error('Unhandled Rejection:', reason);
 });
 
-// Lightweight HTTP Keep-Alive Server for Cloud Uptime (Render)
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -52,16 +47,13 @@ http.createServer((req, res) => {
   console.log(`Keep-Alive server active on port ${PORT}`);
 });
 
-// ==========================================
-// Phase 2: Navigation & Command Registrations
-// ==========================================
 bot.setMyCommands([
   { command: 'start', description: 'Initialize bot and view onboarding instructions' },
   { command: 'help', description: 'How to use Dokumen search bot' }
 ]).catch((err) => console.error('Failed to register commands:', err.message));
 
 // ==========================================
-// Phase 3: Dokumen.pub Scraper Engine with Caching
+// Phase 3: Robust Search Engine via DuckDuckGo (Bypasses Captcha & 403 Blocks)
 // ==========================================
 async function searchDokumenDocuments(query) {
   try {
@@ -73,35 +65,46 @@ async function searchDokumenDocuments(query) {
       return dokumenCache.get(trimmedQuery);
     }
 
-    console.log(`Cache Miss. Scraping Dokumen.pub for: "${trimmedQuery}"`);
+    console.log(`Cache Miss. Searching documents for: "${trimmedQuery}"`);
 
     const headersConfig = {
       headers: { 
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://dokumen.pub/'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
       },
       timeout: 10000
     };
 
-    const searchUrl = `https://dokumen.pub/search?q=${encodeURIComponent(trimmedQuery)}`;
+    // Use DuckDuckGo HTML search targeting dokumen.pub to completely avoid Cloudflare Captcha
+    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(trimmedQuery + ' site:dokumen.pub')}`;
     const response = await axios.get(searchUrl, headersConfig);
     
     const $ = cheerio.load(response.data);
     const documents = [];
 
-    $('a').each((index, element) => {
+    $('.result__url').each((index, element) => {
       if (documents.length >= 5) return;
 
-      const href = $(element).attr('href');
-      const text = $(element).text().trim();
+      const rawLink = $(element).attr('href');
+      if (rawLink) {
+        let actualLink = rawLink;
+        if (rawLink.includes('uddg=')) {
+          try {
+            const match = rawLink.match(/uddg=([^&]+)/);
+            if (match && match[1]) {
+              actualLink = decodeURIComponent(match[1]);
+            }
+          } catch (e) {}
+        }
 
-      if (href && href.startsWith('/') && href.length > 5 && text.length > 10) {
-        if (!documents.some(doc => doc.link === `https://dokumen.pub${href}`)) {
-          documents.push({
-            title: text,
-            link: `https://dokumen.pub${href}`
-          });
+        if (actualLink.includes('dokumen.pub') && !actualLink.includes('/search')) {
+          const resultContainer = $(element).closest('.result');
+          const titleElement = resultContainer.find('.result__title a');
+          const title = titleElement.text().trim() || actualLink;
+
+          if (!documents.some(doc => doc.link === actualLink)) {
+            documents.push({ title, link: actualLink });
+          }
         }
       }
     });
@@ -112,7 +115,7 @@ async function searchDokumenDocuments(query) {
     return documents;
 
   } catch (error) {
-    console.error('Dokumen Scraper Exception:', error.message);
+    console.error('Search Engine Exception:', error.message);
     return null;
   }
 }
@@ -143,7 +146,7 @@ bot.on('message', async (msg) => {
 
   let processingMsgId = null;
   try {
-    const processingMsg = await bot.sendMessage(chatId, '⏳ Searching dokumen.pub database...');
+    const processingMsg = await bot.sendMessage(chatId, '⏳ Searching documents database...');
     processingMsgId = processingMsg.message_id;
 
     const results = await searchDokumenDocuments(messageText);
@@ -165,7 +168,7 @@ bot.on('message', async (msg) => {
 
       await bot.sendMessage(chatId, replyText, { parse_mode: 'Markdown', disable_web_page_preview: true });
     } else {
-      await bot.sendMessage(chatId, `❌ *No Documents Found*\n\nCould not find any matching documents on dokumen.pub for your query.`, { parse_mode: 'Markdown' });
+      await bot.sendMessage(chatId, `❌ *No Documents Found*\n\nCould not find any matching documents for your query.`, { parse_mode: 'Markdown' });
     }
   } catch (error) {
     console.error('Dispatcher Error:', error.message);
