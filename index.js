@@ -1,6 +1,6 @@
 /**
  * Production-Ready Telegram Dokumen Search Bot
- * Featuring DuckDuckGo HTML Routing & Webhook Conflict Resolver
+ * Featuring Direct Search Parser & Webhook Conflict Resolver
  */
 
 const TelegramBot = require('node-telegram-bot-api');
@@ -53,7 +53,7 @@ bot.setMyCommands([
 ]).catch((err) => console.error('Failed to register commands:', err.message));
 
 // ==========================================
-// Phase 3: Robust Search Engine via DuckDuckGo (Bypasses Captcha & 403 Blocks)
+// Phase 3: Enhanced Search Parser Engine
 // ==========================================
 async function searchDokumenDocuments(query) {
   try {
@@ -70,22 +70,27 @@ async function searchDokumenDocuments(query) {
     const headersConfig = {
       headers: { 
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9'
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
       },
-      timeout: 10000
+      timeout: 12000
     };
 
-    // Use DuckDuckGo HTML search targeting dokumen.pub to completely avoid Cloudflare Captcha
-    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(trimmedQuery + ' site:dokumen.pub')}`;
+    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(trimmedQuery + ' dokumen.pub')}`;
     const response = await axios.get(searchUrl, headersConfig);
     
     const $ = cheerio.load(response.data);
     const documents = [];
 
-    $('.result__url').each((index, element) => {
+    $('.result').each((index, element) => {
       if (documents.length >= 5) return;
 
-      const rawLink = $(element).attr('href');
+      const titleEl = $(element).find('.result__title a');
+      const urlEl = $(element).find('.result__url');
+      
+      let title = titleEl.text().trim();
+      let rawLink = urlEl.attr('href') || titleEl.attr('href');
+
       if (rawLink) {
         let actualLink = rawLink;
         if (rawLink.includes('uddg=')) {
@@ -97,11 +102,7 @@ async function searchDokumenDocuments(query) {
           } catch (e) {}
         }
 
-        if (actualLink.includes('dokumen.pub') && !actualLink.includes('/search')) {
-          const resultContainer = $(element).closest('.result');
-          const titleElement = resultContainer.find('.result__title a');
-          const title = titleElement.text().trim() || actualLink;
-
+        if (actualLink && !actualLink.includes('/search') && title.length > 5) {
           if (!documents.some(doc => doc.link === actualLink)) {
             documents.push({ title, link: actualLink });
           }
@@ -162,13 +163,15 @@ bot.on('message', async (msg) => {
         replyText += `*${index + 1}.* [${item.title}](${item.link})\n\n`;
       });
 
+      replyText += `_Tip: Link par click karke browser mein captcha verify karke download karein._`;
+
       if (replyText.length > 4096) {
         replyText = replyText.substring(0, 4090) + '...';
       }
 
       await bot.sendMessage(chatId, replyText, { parse_mode: 'Markdown', disable_web_page_preview: true });
     } else {
-      await bot.sendMessage(chatId, `❌ *No Documents Found*\n\nCould not find any matching documents for your query.`, { parse_mode: 'Markdown' });
+      await bot.sendMessage(chatId, `❌ *No Documents Found*\n\nCould not find any matching documents for your query. Try a simpler keyword.`, { parse_mode: 'Markdown' });
     }
   } catch (error) {
     console.error('Dispatcher Error:', error.message);
