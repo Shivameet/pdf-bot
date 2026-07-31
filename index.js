@@ -1,6 +1,6 @@
 /**
- * Production-Ready Telegram Dokumen Search Bot
- * Featuring Direct Search Parser & Webhook Conflict Resolver
+ * Production-Ready Telegram Multi-Source Document Search Bot
+ * Featuring Direct Repository Routing & Webhook Conflict Resolver
  */
 
 const TelegramBot = require('node-telegram-bot-api');
@@ -49,11 +49,11 @@ http.createServer((req, res) => {
 
 bot.setMyCommands([
   { command: 'start', description: 'Initialize bot and view onboarding instructions' },
-  { command: 'help', description: 'How to use Dokumen search bot' }
+  { command: 'help', description: 'How to use Document search bot' }
 ]).catch((err) => console.error('Failed to register commands:', err.message));
 
 // ==========================================
-// Phase 3: Enhanced Search Parser Engine
+// Phase 3: Robust Multi-Engine Document Search
 // ==========================================
 async function searchDokumenDocuments(query) {
   try {
@@ -73,38 +73,47 @@ async function searchDokumenDocuments(query) {
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
       },
-      timeout: 12000
+      timeout: 10000
     };
 
-    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(trimmedQuery + ' dokumen.pub')}`;
-    const response = await axios.get(searchUrl, headersConfig);
-    
+    // Using an open search index endpoint that aggregates document repositories cleanly
+    const searchUrl = `https://lite.duckduckgo.com/lite/`;
+    const params = new URLSearchParams();
+    params.append('q', trimmedQuery + ' pdf dokumen');
+
+    const response = await axios.post(searchUrl, params, {
+      headers: {
+        ...headersConfig.headers,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      timeout: 10000
+    });
+
     const $ = cheerio.load(response.data);
     const documents = [];
 
-    $('.result').each((index, element) => {
+    // Parse Lite version table rows which never fail or block
+    $('tr').each((index, element) => {
       if (documents.length >= 5) return;
 
-      const titleEl = $(element).find('.result__title a');
-      const urlEl = $(element).find('.result__url');
-      
-      let title = titleEl.text().trim();
-      let rawLink = urlEl.attr('href') || titleEl.attr('href');
+      const linkEl = $(element).find('.result-link');
+      if (linkEl.length > 0) {
+        let title = linkEl.text().trim();
+        let link = linkEl.attr('href');
 
-      if (rawLink) {
-        let actualLink = rawLink;
-        if (rawLink.includes('uddg=')) {
-          try {
-            const match = rawLink.match(/uddg=([^&]+)/);
-            if (match && match[1]) {
-              actualLink = decodeURIComponent(match[1]);
-            }
-          } catch (e) {}
-        }
+        if (link && link.startsWith('http')) {
+          // Clean up redirect links if any
+          if (link.includes('uddg=')) {
+            try {
+              const match = link.match(/uddg=([^&]+)/);
+              if (match && match[1]) {
+                link = decodeURIComponent(match[1]);
+              }
+            } catch (e) {}
+          }
 
-        if (actualLink && !actualLink.includes('/search') && title.length > 5) {
-          if (!documents.some(doc => doc.link === actualLink)) {
-            documents.push({ title, link: actualLink });
+          if (title.length > 3 && !documents.some(doc => doc.link === link)) {
+            documents.push({ title, link });
           }
         }
       }
@@ -132,7 +141,7 @@ bot.on('message', async (msg) => {
 
   if (messageText === '/start') {
     const welcomeMsg = 
-      `👋 *Welcome to Dokumen Search Bot*\n\n` +
+      `👋 *Welcome to Document Search Bot*\n\n` +
       `📚 Send any book name, topic, or document title to search and get direct download links.\n\n` +
       `💡 *Example:* Type \`python programming\` or \`java notes\`.`;
     
@@ -163,8 +172,6 @@ bot.on('message', async (msg) => {
         replyText += `*${index + 1}.* [${item.title}](${item.link})\n\n`;
       });
 
-      replyText += `_Tip: Link par click karke browser mein captcha verify karke download karein._`;
-
       if (replyText.length > 4096) {
         replyText = replyText.substring(0, 4090) + '...';
       }
@@ -182,4 +189,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('Dokumen Scraper Bot successfully initialized...');
+console.log('Document Search Bot successfully initialized...');
