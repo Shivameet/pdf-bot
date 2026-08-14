@@ -194,4 +194,3 @@ bot.on('message', async (msg) => {[span_87](start_span)[span_87](end_span)
 });[span_152](start_span)[span_152](end_span)
 
 console.log('Telegram Wikipedia PDF Bot started successfully.');[span_153](start_span)[span_153](end_span)
-      
