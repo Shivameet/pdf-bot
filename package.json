@@ -1,13 +1,18 @@
 {
-  "name": "pdf-bot",
-  "version": "1.0.0",
+  "name": "telegram-wikipedia-pdf-bot",
+  "version": "1.0.1",
+  "private": true,
+  "description": "Telegram bot that searches English Wikipedia and sends a summary with a PDF link.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "axios": "^1.7.9",
-    "cheerio": "^1.0.0",
+    "node-cache": "^5.1.2",
     "node-telegram-bot-api": "^0.66.0"
   }
 }
