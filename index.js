@@ -636,4 +636,102 @@ bot.on('callback_query', async (callbackQuery) => {
     return;
   }
 
-  if (data.s
+  if (data.startsWith('src:pmc:')) {
+    await handleSourceSelection(callbackQuery, 'PMC', data.slice('src:pmc:'.length));
+    return;
+  }
+
+  if (data.startsWith('wikipdf:')) {
+    const pdfToken = data.slice('wikipdf:'.length);
+    const result = wikipediaPdfCache.get(pdfToken);
+
+    if (!result) {
+      await bot.answerCallbackQuery(callbackQuery.id, {
+        text: 'This PDF button has expired. Please search again.',
+        show_alert: true
+      }).catch(() => {});
+      return;
+    }
+
+    await bot.answerCallbackQuery(callbackQuery.id, { text: 'Preparing Wikipedia PDF...' }).catch(() => {});
+
+    let statusMessageId = null;
+    try {
+      const statusMessage = await bot.sendMessage(chatId, 'Preparing the Wikipedia PDF document...');
+      statusMessageId = statusMessage.message_id;
+      const pdfBuffer = await downloadPdf(wikipediaQueue, result.pdfUrl);
+
+      await bot.sendDocument(chatId, pdfBuffer, {
+        caption: `<b>${escapeHtml(result.title)}</b>\nWikipedia PDF document`,
+        parse_mode: 'HTML'
+      }, {
+        filename: makeFileName(result.title),
+        contentType: 'application/pdf'
+      });
+    } catch (error) {
+      console.error('Wikipedia PDF error:', error.message);
+      await bot.sendMessage(chatId, '<b>Wikipedia PDF could not be sent.</b>\n\nPlease try again later.', { parse_mode: 'HTML' }).catch(() => {});
+    } finally {
+      if (statusMessageId) {
+        await bot.deleteMessage(chatId, statusMessageId).catch(() => {});
+      }
+    }
+    return;
+  }
+
+  if (data.startsWith('pmcpdf:')) {
+    const paperToken = data.slice('pmcpdf:'.length);
+    const paper = pmcPaperCache.get(paperToken);
+
+    if (!paper) {
+      await bot.answerCallbackQuery(callbackQuery.id, {
+        text: 'This article button has expired. Please search again.',
+        show_alert: true
+      }).catch(() => {});
+      return;
+    }
+
+    await bot.answerCallbackQuery(callbackQuery.id, { text: 'Checking the official PMC OA PDF...' }).catch(() => {});
+
+    let statusMessageId = null;
+    try {
+      const statusMessage = await bot.sendMessage(chatId, 'Checking official Open Access PDF availability...');
+      statusMessageId = statusMessage.message_id;
+      const pdfUrl = await getPmcOpenAccessPdfUrl(paper.pmcId);
+
+      if (!pdfUrl) {
+        await bot.sendMessage(chatId, [
+          '<b>No reusable PMC Open Access PDF was found for this article.</b>',
+          '',
+          `<a href="${paper.articleUrl}">Open the official PMC article</a>`
+        ].join('\n'), { parse_mode: 'HTML', disable_web_page_preview: true });
+        return;
+      }
+
+      const pdfBuffer = await downloadPdf(pmcQueue, pdfUrl);
+      await bot.sendDocument(chatId, pdfBuffer, {
+        caption: `<b>${escapeHtml(paper.title)}</b>\nPMC Open Access PDF document`,
+        parse_mode: 'HTML'
+      }, {
+        filename: makeFileName(paper.title),
+        contentType: 'application/pdf'
+      });
+    } catch (error) {
+      console.error('PMC PDF error:', error.message);
+      await bot.sendMessage(chatId, [
+        '<b>PMC Open Access PDF could not be sent.</b>',
+        '',
+        `<a href="${paper.articleUrl}">Open the official PMC article</a>`
+      ].join('\n'), { parse_mode: 'HTML', disable_web_page_preview: true }).catch(() => {});
+    } finally {
+      if (statusMessageId) {
+        await bot.deleteMessage(chatId, statusMessageId).catch(() => {});
+      }
+    }
+    return;
+  }
+
+  await bot.answerCallbackQuery(callbackQuery.id).catch(() => {});
+});
+
+console.log('On-demand Research Helper Bot started successfully.');
