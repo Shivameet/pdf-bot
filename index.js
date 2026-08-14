@@ -427,7 +427,7 @@ async function sendWikipediaResult(chatId, topic) {
   const result = await getWikipediaContent(topic);
 
   if (!result) {
-    await bot.sendMessage(chatId, '<b>No Wikipedia result found.</b>', { parse_mode: 'HTML' });
+    await bot.sendMessage(chatId, '<b>No Wikipedia result found.</b>\n\nPlease search with English keywords.', { parse_mode: 'HTML' });
     return;
   }
 
@@ -459,7 +459,7 @@ async function sendArxivResults(chatId, topic) {
   const results = await getArxivResults(topic);
 
   if (!results.length) {
-    await bot.sendMessage(chatId, '<b>No arXiv research result found.</b>', { parse_mode: 'HTML' });
+    await bot.sendMessage(chatId, '<b>No arXiv research result found.</b>\n\nPlease search with English keywords.', { parse_mode: 'HTML' });
     return;
   }
 
@@ -471,7 +471,7 @@ async function sendArxivResults(chatId, topic) {
 
   const buttons = results.map((item, index) => ([
     { text: `📄 ${index + 1}. Official arXiv PDF`, url: item.pdfUrl },
-    { text: 'Abstract', url: item.abstractUrl }
+    { text: '📝 Paper Summary (पहले पढ़ें)', url: item.abstractUrl }
   ]));
 
   await bot.sendMessage(chatId, message.slice(0, 4096), {
@@ -485,7 +485,7 @@ async function sendPmcResults(chatId, topic) {
   const results = await getPmcResults(topic);
 
   if (!results.length) {
-    await bot.sendMessage(chatId, '<b>No PMC result found.</b>', { parse_mode: 'HTML' });
+    await bot.sendMessage(chatId, '<b>No PMC result found.</b>\n\nPlease search with English keywords.', { parse_mode: 'HTML' });
     return;
   }
 
