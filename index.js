@@ -2,8 +2,10 @@ const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 const axios = require('axios');
 const NodeCache = require('node-cache');
+const crypto = require('crypto');
 
 const wikipediaCache = new NodeCache({ stdTTL: 86400, checkperiod: 600 });
+const pdfButtonCache = new NodeCache({ stdTTL: 3600, checkperiod: 300 });
 const MAX_PDF_BYTES = 48 * 1024 * 1024;
 
 const TOKEN = process.env.BOT_TOKEN;
@@ -62,7 +64,8 @@ function makeFileName(title) {
 function getRequestConfig() {
   return {
     headers: {
-      'User-Agent': 'TelegramResearchBot/2.1 (contact: your-email@example.com)'
+      // Replace this placeholder with your real contact email before production use.
+      'User-Agent': 'TelegramResearchBot/2.2 (contact: your-email@example.com)'
     },
     timeout: 30000
   };
@@ -145,6 +148,20 @@ async function downloadWikipediaPdf(pdfUrl) {
   return fileBuffer;
 }
 
+function createPdfButton(result) {
+  const buttonId = crypto.randomBytes(12).toString('hex');
+  pdfButtonCache.set(buttonId, result);
+
+  return {
+    inline_keyboard: [[
+      {
+        text: '📥 Download PDF File',
+        callback_data: `pdf:${buttonId}`
+      }
+    ]]
+  };
+}
+
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const messageText = msg.text?.trim();
@@ -158,7 +175,9 @@ bot.on('message', async (msg) => {
       '<b>Welcome to Research PDF Bot</b>',
       '',
       'Send an English keyword or topic name.',
-      'The bot will send the Wikipedia summary and the PDF as a Telegram document file.',
+      'You will receive a Wikipedia summary and a Download PDF File button.',
+      '',
+      'Press the button to receive the PDF as a Telegram document file.',
       '',
       'Use /language to view the active search language.'
     ].join('\n');
@@ -179,16 +198,16 @@ bot.on('message', async (msg) => {
   let processingMessageId = null;
 
   try {
-    const processingMessage = await bot.sendMessage(chatId, 'Searching Wikipedia and preparing the PDF file...');
+    const processingMessage = await bot.sendMessage(chatId, 'Searching Wikipedia...');
     processingMessageId = processingMessage.message_id;
 
     const result = await getWikipediaContent(messageText);
 
-    if (!result) {
-      if (processingMessageId) {
-        await bot.deleteMessage(chatId, processingMessageId).catch(() => {});
-      }
+    if (processingMessageId) {
+      await bot.deleteMessage(chatId, processingMessageId).catch(() => {});
+    }
 
+    if (!result) {
       await bot.sendMessage(
         chatId,
         '<b>No matching record found.</b>\n\nPlease check the spelling and try an English search term.',
@@ -200,9 +219,7 @@ bot.on('message', async (msg) => {
     let summaryText = [
       `<b>${escapeHtml(result.title)}</b>`,
       '',
-      escapeHtml(result.summary),
-      '',
-      'The PDF document is being sent below.'
+      escapeHtml(result.summary)
     ].join('\n');
 
     if (summaryText.length > 4096) {
@@ -211,8 +228,53 @@ bot.on('message', async (msg) => {
 
     await bot.sendMessage(chatId, summaryText, {
       parse_mode: 'HTML',
-      disable_web_page_preview: true
+      disable_web_page_preview: true,
+      reply_markup: createPdfButton(result)
     });
+  } catch (error) {
+    console.error('Message dispatcher error:', error.message);
+
+    if (processingMessageId) {
+      await bot.deleteMessage(chatId, processingMessageId).catch(() => {});
+    }
+
+    await bot.sendMessage(
+      chatId,
+      '<b>System error.</b>\n\nPlease try again in a moment.',
+      { parse_mode: 'HTML' }
+    ).catch(() => {});
+  }
+});
+
+bot.on('callback_query', async (callbackQuery) => {
+  const callbackData = callbackQuery.data || '';
+  const chatId = callbackQuery.message?.chat?.id;
+
+  if (!chatId || !callbackData.startsWith('pdf:')) {
+    await bot.answerCallbackQuery(callbackQuery.id).catch(() => {});
+    return;
+  }
+
+  const buttonId = callbackData.slice(4);
+  const result = pdfButtonCache.get(buttonId);
+
+  if (!result) {
+    await bot.answerCallbackQuery(callbackQuery.id, {
+      text: 'This download button has expired. Please search for the topic again.',
+      show_alert: true
+    }).catch(() => {});
+    return;
+  }
+
+  await bot.answerCallbackQuery(callbackQuery.id, {
+    text: 'Preparing your PDF file...'
+  }).catch(() => {});
+
+  let statusMessageId = null;
+
+  try {
+    const statusMessage = await bot.sendMessage(chatId, 'Preparing the PDF document...');
+    statusMessageId = statusMessage.message_id;
 
     const pdfBuffer = await downloadWikipediaPdf(result.pdfUrl);
 
@@ -229,14 +291,14 @@ bot.on('message', async (msg) => {
       }
     );
 
-    if (processingMessageId) {
-      await bot.deleteMessage(chatId, processingMessageId).catch(() => {});
+    if (statusMessageId) {
+      await bot.deleteMessage(chatId, statusMessageId).catch(() => {});
     }
   } catch (error) {
-    console.error('Message dispatcher error:', error.message);
+    console.error('PDF download error:', error.message);
 
-    if (processingMessageId) {
-      await bot.deleteMessage(chatId, processingMessageId).catch(() => {});
+    if (statusMessageId) {
+      await bot.deleteMessage(chatId, statusMessageId).catch(() => {});
     }
 
     const userMessage = error.message.includes('too large')
@@ -247,5 +309,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('Telegram Wikipedia Direct PDF Bot started successfully.');
-      
+console.log('Telegram Wikipedia PDF Button Bot started successfully.');
